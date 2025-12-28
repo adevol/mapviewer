@@ -1,0 +1,258 @@
+/* ===========================================
+   MapViewer - Premium Glassmorphism Design
+   =========================================== */
+
+:root {
+    /* Color Palette - Sophisticated Blues & Grays */
+    --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --glass-bg: rgba(255, 255, 255, 0.15);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+    
+    /* Price Color Scale (Blue=Cheap -> Red=Expensive) */
+    --price-low: #3498db;
+    --price-mid: #f1c40f;
+    --price-high: #e74c3c;
+    
+    /* Typography */
+    --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    
+    /* Sizing */
+    --panel-width: 320px;
+    --border-radius: 16px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-main);
+    overflow: hidden;
+    background: #1a1a2e;
+}
+
+/* ===========================================
+   Map Container
+   =========================================== */
+#map {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* ===========================================
+   Glassmorphism Info Panel
+   =========================================== */
+.glass-panel {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: var(--panel-width);
+    padding: 24px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--glass-shadow);
+    color: white;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.glass-panel:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.glass-panel h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.glass-panel .subtitle {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin-bottom: 20px;
+}
+
+/* ===========================================
+   Info Sections
+   =========================================== */
+.info-section {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.info-section .hint {
+    font-size: 0.9rem;
+    opacity: 0.6;
+    text-align: center;
+}
+
+.info-section .stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.info-section .stat:last-child {
+    margin-bottom: 0;
+}
+
+.info-section .stat-label {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.info-section .stat-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #4fc3f7;
+}
+
+.info-section .stat-value.price {
+    color: #ffd54f;
+}
+
+/* ===========================================
+   Legend
+   =========================================== */
+.legend {
+    margin-bottom: 16px;
+}
+
+.legend h3 {
+    font-size: 0.9rem;
+    font-weight: 500;
+    margin-bottom: 10px;
+    opacity: 0.9;
+}
+
+.legend-scale {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.legend-bar {
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(
+        90deg,
+        var(--price-low) 0%,
+        var(--price-mid) 50%,
+        var(--price-high) 100%
+    );
+}
+
+.legend-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+/* ===========================================
+   Zoom Hint
+   =========================================== */
+.zoom-hint {
+    text-align: center;
+    font-size: 0.85rem;
+    opacity: 0.7;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.zoom-hint p {
+    margin-bottom: 4px;
+}
+
+#zoom-level {
+    font-weight: 600;
+    color: #4fc3f7;
+}
+
+/* ===========================================
+   Loading Overlay
+   =========================================== */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(26, 26, 46, 0.95);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    transition: opacity 0.5s ease;
+}
+
+.loading-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-overlay p {
+    color: white;
+    font-size: 1rem;
+    opacity: 0.8;
+}
+
+/* ===========================================
+   MapLibre Overrides
+   =========================================== */
+.maplibregl-ctrl-attrib {
+    background: rgba(0, 0, 0, 0.5) !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    border-radius: 4px;
+}
+
+.maplibregl-ctrl-attrib a {
+    color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* ===========================================
+   Responsive Design
+   =========================================== */
+@media (max-width: 768px) {
+    .glass-panel {
+        top: auto;
+        bottom: 20px;
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+}

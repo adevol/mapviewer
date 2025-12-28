@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MapViewer - Prix Immobiliers France</title>
+    <meta name="description"
+        content="Visualisation interactive des prix immobiliers en France basée sur les données DVF.">
+
+    <!-- Preload critical resources -->
+    <link rel="preload" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" as="script">
+    <link rel="preload" href="departements.geojson" as="fetch" crossorigin>
+
+    <!-- Google Fonts - with swap for faster text rendering -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- MapLibre GL JS -->
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+    <!-- App styles and script -->
+    <link rel="stylesheet" href="style.css">
+    <script defer src="app.js"></script>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <!-- Info Panel (Glassmorphism) -->
+    <div id="info-panel" class="glass-panel">
+        <h1>🏠 Prix Immobiliers</h1>
+        <p class="subtitle">France métropolitaine</p>
+
+        <div id="hover-info" class="info-section">
+            <p class="hint">Survolez la carte pour voir les détails</p>
+        </div>
+
+        <div class="legend">
+            <h3>Prix au m² (€)</h3>
+            <div class="legend-scale">
+                <div class="legend-bar"></div>
+                <div class="legend-labels">
+                    <span>1 000</span>
+                    <span>5 000</span>
+                    <span>10 000+</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="zoom-hint">
+            <p>🔍 Zoomez pour voir les parcelles</p>
+            <p>Niveau: <span id="zoom-level">5</span></p>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>Chargement des données...</p>
+    </div>
+
+</body>
+
+</html>
