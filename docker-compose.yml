@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  mapviewer:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1

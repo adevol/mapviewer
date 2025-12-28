@@ -1,0 +1,42 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Data files (large, download separately)
+data/*.parquet
+data/*.duckdb
+data/*.7z
+data/*.zip
+data/*.csv.gz
+data/raw_data/
+data/admin_express/
+data/dvf_extracted/
+data/temp_dvf/
+
+# Cache
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated frontend data (regenerate with precompute.py)
+src/frontend/*.geojson
+src/frontend/communes/
+src/frontend/stats_cache.json
+src/frontend/tiles/
+
+# Old/backup data
+src/frontend/old/
