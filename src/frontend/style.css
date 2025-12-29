@@ -8,15 +8,15 @@
     --glass-bg: rgba(255, 255, 255, 0.15);
     --glass-border: rgba(255, 255, 255, 0.2);
     --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
-    
-    /* Price Color Scale (Blue=Cheap -> Red=Expensive) */
-    --price-low: #3498db;
-    --price-mid: #f1c40f;
-    --price-high: #e74c3c;
-    
+
+    /* Price Color Scale (Green -> Orange -> Red) */
+    --price-low: #27ae60;
+    --price-mid: #e67e22;
+    --price-high: #ff0000;
+
     /* Typography */
     --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    
+
     /* Sizing */
     --panel-width: 320px;
     --border-radius: 16px;
@@ -151,12 +151,10 @@ body {
 .legend-bar {
     height: 12px;
     border-radius: 6px;
-    background: linear-gradient(
-        90deg,
-        var(--price-low) 0%,
-        var(--price-mid) 50%,
-        var(--price-high) 100%
-    );
+    background: linear-gradient(90deg,
+            var(--price-low) 0%,
+            var(--price-mid) 50%,
+            var(--price-high) 100%);
 }
 
 .legend-labels {
@@ -164,6 +162,43 @@ body {
     justify-content: space-between;
     font-size: 0.75rem;
     opacity: 0.7;
+}
+
+/* ===========================================
+   Top Communes List
+   =========================================== */
+.commune-list {
+    list-style: none;
+    margin-top: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+}
+
+.commune-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.commune-list li:last-child {
+    border-bottom: none;
+}
+
+.commune-list .price {
+    font-weight: 600;
+    color: #ffd54f;
+}
+
+/* Scrollbar for list */
+.commune-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.commune-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
 }
 
 /* ===========================================
@@ -220,7 +255,9 @@ body {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .loading-overlay p {
