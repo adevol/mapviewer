@@ -146,7 +146,6 @@ def load_and_simplify(
 
     # Choose simplification strategy
     # TopoJSON is memory intensive. Use standard simplification for large features
-    # (regions/departments) to avoid OOM.
     if level in ("region", "departement", "country"):
         gdf = simplify_fast(gdf, level)
     else:
