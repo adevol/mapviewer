@@ -119,7 +119,14 @@ def compute_commune_stats() -> tuple[Dict[str, Any], Dict[str, str]]:
 
     stats = {}
     names = {}
-    departments = sorted(list(set(DEPT_TO_REGION.keys())))
+    # Get departments from actual DVF data, not config mapping
+    con = get_db()
+    dept_result = con.execute(
+        "SELECT DISTINCT dept_code FROM dvf_clean WHERE dept_code IS NOT NULL ORDER BY 1"
+    ).fetchall()
+    con.close()
+    departments = [row[0] for row in dept_result]
+    logger.info(f"Found {len(departments)} departments in DVF data")
 
     for dept_code in tqdm(departments, desc="Processing departments"):
         dept_stats, dept_names = compute_standard_stats(

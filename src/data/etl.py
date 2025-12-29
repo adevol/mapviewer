@@ -186,7 +186,7 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
             "Code commune" AS commune_code,
             "Code postal" AS postal_code,
             "Commune" AS commune_name,
-            "Type local" AS property_type,
+            -- Note: Type local removed from grouping - a transaction can mix types
             
             -- For multi-lot transactions, price is the same on all rows
             "Valeur fonciere" AS price,
@@ -214,7 +214,6 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
             "Valeur fonciere",
             "Code postal",
             "Commune",
-            "Type local",
             "Nature mutation"
     """
     )
