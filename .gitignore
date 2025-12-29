@@ -33,8 +33,4 @@ data/temp_dvf/
 Thumbs.db
 
 # Generated frontend data (regenerate with precompute.py)
-src/frontend/*.geojson
-src/frontend/tiles/
-
-# Old/backup data
-src/frontend/old/
+#src/frontend/*.geojson

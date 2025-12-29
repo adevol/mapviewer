@@ -12,9 +12,7 @@
  * - Zoom 11+:  Communes (dynamically loaded by department)
  */
 
-// ===========================
-// Configuration
-// ===========================
+
 
 const API_BASE = '';
 
@@ -41,9 +39,7 @@ const PRICE_COLOR_EXPR = [
     12000, '#ff0000', // Bright Red - expensive
 ];
 
-// ===========================
-// Map Initialization with French Government Vector Tiles
-// ===========================
+
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -51,17 +47,17 @@ const map = new maplibregl.Map({
         version: 8,
         name: 'MapViewer Style',
         sources: {
-            // OpenMapTiles base layer from French government
+
             'openmaptiles': {
                 type: 'vector',
                 url: 'https://openmaptiles.geo.data.gouv.fr/data/planet-vector.json'
             },
-            // French administrative boundaries (communes, departements)
+
             'decoupage-administratif': {
                 type: 'vector',
                 url: 'https://openmaptiles.geo.data.gouv.fr/data/decoupage-administratif.json'
             },
-            // Fallback raster for areas without vector coverage
+
             'osm-raster': {
                 type: 'raster',
                 tiles: [
@@ -72,7 +68,7 @@ const map = new maplibregl.Map({
                 tileSize: 256,
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
             },
-            // IGN Cadastral parcels (WMTS - pre-cached tiles, better rate limits)
+
             'cadastre': {
                 type: 'raster',
                 tiles: [
@@ -87,13 +83,13 @@ const map = new maplibregl.Map({
         sprite: 'https://openmaptiles.github.io/osm-bright-gl-style/sprite',
         glyphs: 'https://openmaptiles.geo.data.gouv.fr/fonts/{fontstack}/{range}.pbf',
         layers: [
-            // Background
+
             {
                 id: 'background',
                 type: 'background',
                 paint: { 'background-color': '#f5f5f5' }
             },
-            // Fallback raster tiles
+
             {
                 id: 'osm-raster-tiles',
                 type: 'raster',
@@ -102,7 +98,7 @@ const map = new maplibregl.Map({
                 maxzoom: 19,
                 paint: { 'raster-opacity': 0.5 }
             },
-            // Water from OpenMapTiles
+
             {
                 id: 'water',
                 type: 'fill',
@@ -110,7 +106,7 @@ const map = new maplibregl.Map({
                 'source-layer': 'water',
                 paint: { 'fill-color': '#a0c8f0' }
             },
-            // Land use
+
             {
                 id: 'landuse-residential',
                 type: 'fill',
@@ -119,7 +115,7 @@ const map = new maplibregl.Map({
                 filter: ['in', 'class', 'residential', 'suburb', 'neighbourhood'],
                 paint: { 'fill-color': 'hsla(30, 19%, 90%, 0.4)' }
             },
-            // Roads
+
             {
                 id: 'highway-motorway',
                 type: 'line',
@@ -144,7 +140,7 @@ const map = new maplibregl.Map({
                     'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 20, 18]
                 }
             },
-            // Place labels
+
             {
                 id: 'place-city',
                 type: 'symbol',
@@ -180,7 +176,7 @@ const map = new maplibregl.Map({
                     'text-halo-width': 1.2
                 }
             },
-            // Administrative boundaries from decoupage-administratif
+
             {
                 id: 'communes-outline',
                 type: 'line',
@@ -206,7 +202,7 @@ const map = new maplibregl.Map({
                     'line-width': 1
                 }
             },
-            // IGN Cadastral parcels (WMS raster tiles)
+
             {
                 id: 'cadastre-layer',
                 type: 'raster',
@@ -228,9 +224,7 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), 'bottom-right');
 
-// ===========================
-// Stats Cache
-// ===========================
+
 
 let statsCache = null;
 
@@ -251,9 +245,7 @@ function getStatsForCode(level, code) {
     return statsCache[level][code] || null;
 }
 
-// ===========================
-// Layer Loading (GeoJSON with stats)
-// ===========================
+
 
 async function addGeoLayer(layerConfig) {
     const { id, file, minzoom, maxzoom } = layerConfig;
@@ -266,13 +258,11 @@ async function addGeoLayer(layerConfig) {
         }
         const geoData = await response.json();
 
-        // Determine stats level (remove trailing 's' essentially)
+
         const statsLevel = id === 'departements' ? 'departement' :
             id === 'regions' ? 'region' :
-                id === 'cantons' ? 'canton' :
-                    id === 'communes' ? 'commune' : 'country';
+                id === 'cantons' ? 'canton' : 'country';
 
-        // Enrich features with price data from stats cache
         geoData.features.forEach(feature => {
             const code = feature.properties.code;
             const stats = getStatsForCode(statsLevel, code);
@@ -284,13 +274,12 @@ async function addGeoLayer(layerConfig) {
             }
         });
 
-        // Add source
         map.addSource(id, {
             type: 'geojson',
             data: geoData
         });
 
-        // Add fill layer (below the vector tile outlines)
+
         map.addLayer({
             id: `${id}-fill`,
             type: 'fill',
@@ -301,9 +290,9 @@ async function addGeoLayer(layerConfig) {
                 'fill-color': PRICE_COLOR_EXPR,
                 'fill-opacity': 0.6,
             },
-        }, 'communes-outline'); // Insert below outline layers
+        }, 'communes-outline');
 
-        // Add outline layer
+
         map.addLayer({
             id: `${id}-outline`,
             type: 'line',
@@ -323,28 +312,24 @@ async function addGeoLayer(layerConfig) {
     }
 }
 
-// ===========================
-// Map Load Handler
-// ===========================
+
 
 map.on('load', async () => {
     console.log('Map loaded with French government vector tiles');
 
-    // Load stats cache first
+
     await loadStatsCache();
 
-    // Add all geographic layers with stats
-    for (const layerConfig of GEO_LAYERS) {
-        await addGeoLayer(layerConfig);
-    }
 
-    // Initialize communes source (empty, will be populated dynamically)
+    await Promise.all(GEO_LAYERS.map(layerConfig => addGeoLayer(layerConfig)));
+
+
     map.addSource('communes', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
     });
 
-    // Add communes fill layer
+
     map.addLayer({
         id: 'communes-fill',
         type: 'fill',
@@ -357,7 +342,7 @@ map.on('load', async () => {
         },
     }, 'communes-outline');
 
-    // Add communes outline layer
+
     map.addLayer({
         id: 'communes-line',
         type: 'line',
@@ -372,18 +357,16 @@ map.on('load', async () => {
 
     console.log('Communes layer ready for dynamic loading');
 
-    // Hide loading overlay
+
     document.getElementById('loading').classList.add('hidden');
 
-    // Load initial visible communes
+
     loadVisibleCommunes();
 });
 
-// ===========================
-// Dynamic Commune Loading
-// ===========================
 
-// Department bounding boxes (approximated from departements.geojson)
+
+
 let deptBounds = null;
 
 async function loadDeptBounds() {
@@ -394,7 +377,6 @@ async function loadDeptBounds() {
 
         data.features.forEach(f => {
             const code = f.properties.code;
-            // Calculate bounding box from geometry
             const coords = [];
             const extractCoords = (geom) => {
                 if (Array.isArray(geom[0])) {
@@ -427,7 +409,6 @@ function getVisibleDepartments() {
     const visible = [];
 
     for (const [code, bbox] of Object.entries(deptBounds)) {
-        // Check if department bbox intersects with viewport
         if (bbox.maxLon >= bounds.getWest() &&
             bbox.minLon <= bounds.getEast() &&
             bbox.maxLat >= bounds.getSouth() &&
@@ -448,11 +429,11 @@ async function loadCommuneDept(deptCode) {
         const data = await response.json();
         loadedCommuneDepts.add(deptCode);
 
-        // Get current source data and merge
+
         const source = map.getSource('communes');
         const currentData = source._data || { type: 'FeatureCollection', features: [] };
 
-        // Merge new features (already enriched with stats by split script)
+
         const newFeatures = [...currentData.features, ...data.features];
         source.setData({ type: 'FeatureCollection', features: newFeatures });
 
@@ -464,7 +445,7 @@ async function loadCommuneDept(deptCode) {
 
 async function loadVisibleCommunes() {
     const zoom = map.getZoom();
-    if (zoom < 11) return; // Only load at commune zoom levels (11+)
+    if (zoom < 10) return; // Preload at zoom 10, before communes become visible at 11
 
     if (!deptBounds) {
         await loadDeptBounds();
@@ -479,60 +460,25 @@ async function loadVisibleCommunes() {
     }
 }
 
-// Convert price to color using same scale as PRICE_COLOR_EXPR
-function priceToColor(price) {
-    const stops = [
-        [1000, '#27ae60'],
-        [4000, '#f1c40f'],
-        [7000, '#e67e22'],
-        [12000, '#ff0000'],
-    ];
 
-    if (price <= stops[0][0]) return stops[0][1];
-    if (price >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
-
-    for (let i = 0; i < stops.length - 1; i++) {
-        if (price >= stops[i][0] && price < stops[i + 1][0]) {
-            const t = (price - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
-            return interpolateColor(stops[i][1], stops[i + 1][1], t);
-        }
-    }
-    return '#888888';
-}
-
-// Simple hex color interpolation
-function interpolateColor(c1, c2, t) {
-    const r1 = parseInt(c1.slice(1, 3), 16);
-    const g1 = parseInt(c1.slice(3, 5), 16);
-    const b1 = parseInt(c1.slice(5, 7), 16);
-    const r2 = parseInt(c2.slice(1, 3), 16);
-    const g2 = parseInt(c2.slice(3, 5), 16);
-    const b2 = parseInt(c2.slice(5, 7), 16);
-    const r = Math.round(r1 + (r2 - r1) * t);
-    const g = Math.round(g1 + (g2 - g1) * t);
-    const b = Math.round(b1 + (b2 - b1) * t);
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-}
-
-// Load communes when zooming or panning at high zoom
+let communeLoadTimeout;
 map.on('moveend', () => {
-    loadVisibleCommunes();
+    clearTimeout(communeLoadTimeout);
+    communeLoadTimeout = setTimeout(loadVisibleCommunes, 150);
 });
 
 
-// ===========================
-// Hover Interaction
-// ===========================
+
 
 const hoverInfoEl = document.getElementById('hover-info');
 
-// Helper to format price
+
 function formatPrice(price) {
     if (!price) return 'N/A';
     return Math.round(price).toLocaleString() + ' EUR/m2';
 }
 
-// Add hover handlers for each layer
+
 function addHoverHandler(layerId, displayName) {
     map.on('mousemove', `${layerId}-fill`, (e) => {
         if (e.features.length > 0) {
@@ -570,51 +516,33 @@ function addHoverHandler(layerId, displayName) {
     });
 }
 
-// Register hover handlers after map loads
+
 map.on('load', () => {
     addHoverHandler('country', 'Pays');
     addHoverHandler('regions', 'Region');
     addHoverHandler('departements', 'Departement');
     addHoverHandler('cantons', 'Canton');
     addHoverHandler('communes', 'Commune');
-    // Note: Cadastre layer uses WMS raster tiles - no hover interaction available
 });
 
-// ===========================
-// Zoom Level Display
-// ===========================
+
 
 const zoomLevelEl = document.getElementById('zoom-level');
 
 map.on('zoom', () => {
     const zoom = map.getZoom().toFixed(1);
     if (zoomLevelEl) zoomLevelEl.innerText = zoom;
-
-    const parcelStatusEl = document.getElementById('parcel-status');
-    if (parcelStatusEl) {
-        if (zoom >= 14) {
-            parcelStatusEl.innerText = 'Actif';
-            parcelStatusEl.style.color = '#27ae60';
-        } else {
-            parcelStatusEl.innerText = 'Hors zoom (< 14)';
-            parcelStatusEl.style.color = '#e67e22';
-        }
-    }
 });
 
-// Note: Cadastre tiles are now loaded directly from IGN's WMS service
 
-// ===========================
-// Error Handling
-// ===========================
+
+
 
 map.on('error', (e) => {
     console.error('Map error:', e);
 });
 
-// ===========================
-// Top 10 Communes
-// ===========================
+
 async function loadTopCommunes() {
     try {
         const response = await fetch('/top_expensive.json');
@@ -637,5 +565,5 @@ async function loadTopCommunes() {
     }
 }
 
-// Call on load
+
 loadTopCommunes();
