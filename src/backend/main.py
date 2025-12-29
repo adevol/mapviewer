@@ -24,8 +24,6 @@ from fastapi.staticfiles import StaticFiles
 # Constants
 STATIC_DIR = Path("src/frontend")
 DATA_DIR = Path("data")
-# Pre-calculated commune stats logic
-COMMUNE_STATS_VIEW_NAME = "commune_stats_cache"
 DB_PATH = DATA_DIR / "real_estate.duckdb"
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
@@ -58,58 +56,10 @@ def get_db() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(DB_PATH), read_only=True)
 
 
-def sync_stats_cache():
-    """Sync per-department commune GeoJSONs to DuckDB for fast joins using native JSON engine."""
-    communes_dir = STATIC_DIR / "communes"
-    if not communes_dir.exists():
-        print(f"Warning: {communes_dir} not found. Stats will be missing.")
-        return
-
-    # Use forward slashes for DuckDB globbing on Windows
-    pattern = str(communes_dir / "*.geojson").replace("\\", "/")
-
-    print(f"SYNCING STATS FROM {pattern}...")
-    start_time = time.time()
-    try:
-        # Need write access
-        con = duckdb.connect(str(DB_PATH))
-        con.execute("INSTALL json; LOAD json;")
-
-        # Super-fast unnest + JSON extract (skips massive geometry data)
-        con.execute(
-            f"""
-            CREATE OR REPLACE TABLE commune_stats_cache AS
-            SELECT 
-                CAST(feature->>'$.properties.code' AS VARCHAR) as insee_com,
-                CAST(feature->>'$.properties.price_m2' AS DOUBLE) as median_price_m2,
-                CAST(feature->>'$.properties.n_sales' AS INTEGER) as volume
-            FROM (
-                SELECT unnest(features) as feature
-                FROM read_json('{pattern}', format='auto')
-            )
-            WHERE insee_com IS NOT NULL;
-        """
-        )
-
-        con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_commune_cache ON commune_stats_cache (insee_com)"
-        )
-
-        count = con.execute("SELECT count(*) FROM commune_stats_cache").fetchone()[0]
-        con.close()
-
-        duration = time.time() - start_time
-        print(f"STATS SYNCED: {count} communes indexed in {duration:.3f}s.")
-    except Exception as e:
-        print(f"Error syncing stats: {e}")
-        traceback.print_exc()
-
-
 @app.on_event("startup")
 async def startup_event():
     print("\n--- MAPVIEWER BACKEND STARTING ---")
     print(f"DB Path: {DB_PATH.absolute()}")
-    sync_stats_cache()
 
 
 @app.get("/api/health")
@@ -271,7 +221,3 @@ if frontend_path.exists():
     app.mount(
         "/", StaticFiles(directory=str(frontend_path), html=True), name="frontend"
     )
-
-
-
-
