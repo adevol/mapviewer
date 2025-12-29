@@ -138,11 +138,11 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
     """Creates a cleaned DVF table with deduplicated multi-lot transactions.
 
     DVF records bulk building sales with the TOTAL price on each lot row.
-    E.g., a €42M building sale with 20 apartments shows €42M on each row,
-    leading to absurd €1.8M/m² calculations when dividing by individual surfaces.
+    E.g., a 42M EUR building sale with 20 apartments shows 42M EUR on each row,
+    leading to absurd 1.8M EUR/m2 calculations when dividing by individual surfaces.
 
     Solution: Group by mutation ID ("Identifiant de document") and sum surfaces,
-    keeping the transaction price once. This gives correct price/m² for bulk sales.
+    keeping the transaction price once. This gives correct price/m2 for bulk sales.
 
     See docs/pipeline.md for detailed explanation.
 
@@ -159,11 +159,27 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
 
     logger.info("Creating cleaned DVF table (deduplicating multi-lot transactions)...")
 
+    # "Identifiant de document" is ALWAYS NULL in DVF data, so we cannot use it.
+    # Instead, we create a synthetic transaction ID from fields that together
+    # identify a unique real estate transaction:
+    # - Date mutation: when the sale occurred
+    # - Code departement + Code commune: where
+    # - No disposition: disposition number (unique within a document/day)
+    # - Valeur fonciere: the transaction price
+    #
+    # Note: We do NOT include "Type local" in the grouping key because a single
+    # transaction can include multiple property types (e.g., apartment + parking).
     con.execute(
         """
         CREATE TABLE dvf_clean AS
         SELECT
-            "Identifiant de document" AS mutation_id,
+            -- Synthetic transaction ID (since Identifiant de document is always NULL)
+            "Date mutation" || '|' || 
+            "Code departement" || '|' ||
+            LPAD(CAST("Code commune" AS VARCHAR), 3, '0') || '|' ||
+            "No disposition" || '|' ||
+            CAST("Valeur fonciere" AS VARCHAR) AS mutation_id,
+            
             "Date mutation" AS mutation_date,
             "Nature mutation" AS nature,
             "Code departement" AS dept_code,
@@ -173,8 +189,7 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
             "Type local" AS property_type,
             
             -- For multi-lot transactions, price is the same on all rows
-            -- We take MAX to get the transaction price (all rows have same value)
-            MAX("Valeur fonciere") AS price,
+            "Valeur fonciere" AS price,
             
             -- Sum surfaces across all lots in the transaction
             SUM("Surface reelle bati") AS total_surface,
@@ -182,8 +197,8 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
             -- Count lots in this transaction
             COUNT(*) AS n_lots,
             
-            -- Calculated price per m2 (after aggregation, this is correct)
-            MAX("Valeur fonciere") / NULLIF(SUM("Surface reelle bati"), 0) AS price_m2
+            -- Calculated price per m2 (after aggregation)
+            "Valeur fonciere" / NULLIF(SUM("Surface reelle bati"), 0) AS price_m2
             
         FROM dvf
         WHERE "Nature mutation" = 'Vente'
@@ -191,14 +206,16 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
         AND "Surface reelle bati" > 0
         AND "Type local" IN ('Maison', 'Appartement')
         GROUP BY
-            "Identifiant de document",
+            -- Group by a synthetic transaction ID components
             "Date mutation",
-            "Nature mutation",
             "Code departement",
             "Code commune",
+            "No disposition",
+            "Valeur fonciere",
             "Code postal",
             "Commune",
-            "Type local"
+            "Type local",
+            "Nature mutation"
     """
     )
 
@@ -228,10 +245,6 @@ def ingest_cadastre(con: duckdb.DuckDBPyConnection) -> None:
         SELECT * FROM read_parquet('{CADASTRE_FILE}');
     """
     )
-
-    # Note: RTREE index not available on views, but parquet row-groups provide
-    # some spatial locality. For production, consider spatial sorting the parquet.
-
     count = con.execute("SELECT COUNT(*) FROM parcels").fetchone()[0]
     logger.info(f"Parcels view created. Total count: {count:,}")
 

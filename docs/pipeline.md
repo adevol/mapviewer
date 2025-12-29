@@ -7,23 +7,43 @@ This document describes the MapViewer data pipeline, including data sources, tra
 ## Data Sources
 
 ### DVF (Demandes de Valeurs Foncières)
-- **Description**: French real estate transaction records from the government
-- **Source**: `data/raw_data/valeursfoncieres-*.txt.zip`
-- **Coverage**: 2020 S2 - 2025 S1 (~4.5 years)
-- **Contents**: Transaction details including price, surface, location, property type
 
-### Admin Express
-- **Description**: Administrative boundaries (regions, departments, communes)
-- **Source**: IGN Admin Express 2025
-- **Version**: `ADMIN-EXPRESS_3-2__SHP_LAMB93_FXX_2025-02-03`
+| Field | Value |
+|-------|-------|
+| **Description** | French real estate transaction records |
+| **Source** | [data.gouv.fr/datasets/demandes-de-valeurs-foncieres](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres/) |
+| **Coverage** | 2020 S2 - 2025 S1 (~4.5 years) |
+| **Filters Applied** | `price_m2` between 100€ and 50,000€ |
+| | `nature_mutation` = 'Vente' |
+| | Property types: 'Maison', 'Appartement' only |
+
+### Admin Express (Administrative Boundaries)
+
+| Field | Value |
+|-------|-------|
+| **Description** | Official French administrative boundaries |
+| **Source** | [geoservices.ign.fr](https://geoservices.ign.fr/telechargement-api/ADMIN-EXPRESS-COG?zone=FRA) |
+| **Version** | ADMIN-EXPRESS_3-2__SHP_LAMB93_FXX_2025-02-03 |
+| **Levels** | Regions, Departments, Cantons, Communes, Arrondissements |
+
+### Cadastral Parcels
+
+| Field | Value |
+|-------|-------|
+| **Description** | Property parcel boundaries |
+| **Source (visualization)** | IGN WMTS: `data.geopf.fr/wmts` |
+| **Source (data)** | [cadastre.data.gouv.fr](https://cadastre.data.gouv.fr/datasets/cadastre-etalab) |
+
+> [!NOTE]
+> Parcel visualization uses IGN's WMTS tile service for simplicity. Self-hosted MVT tiles with price coloring are a future enhancement (see `generate_tiles.py`).
 
 ---
 
-## Data Quality Issue: Multi-Lot Transactions
+## Data Quality Issues
 
-### Problem Description
+### Issue 1: Multi-Lot Transactions
 
-DVF records **bulk building sales** (e.g., entire apartment buildings) with the **total transaction price on each lot row**.
+DVF records **bulk building sales** with the **total transaction price on each lot row**.
 
 **Example - Villeron bulk sale:**
 
@@ -31,66 +51,73 @@ DVF records **bulk building sales** (e.g., entire apartment buildings) with the 
 |-----|----------|-----------|--------------|-----------------|
 | 1 | Apartment | 42,048,908 | 23 | 1,828,213 ❌ |
 | 2 | Apartment | 42,048,908 | 24 | 1,752,038 ❌ |
-| 3 | Apartment | 42,048,908 | 28 | 1,501,747 ❌ |
 | ... | ... | ... | ... | ... |
 
-The €42M is the **total building price**, not the individual apartment price. Dividing by each apartment's surface gives absurd €1.8M/m² values.
+The €42M is the **total building price**, not the individual apartment price.
 
-### Solution: Deduplicate by Mutation ID
+### Issue 2: Missing Mutation ID
 
-The `dvf_clean` table groups transactions by `Identifiant de document` (mutation ID) and **sums surfaces**:
+The `"Identifiant de document"` column is **always NULL** in DVF data (all 20M+ rows). This field was intended to group lots within the same transaction, but cannot be used.
+
+### Solution: Synthetic Transaction ID
+
+The `dvf_clean` table uses a **synthetic transaction ID** built from multiple fields:
 
 ```sql
-SELECT
-    "Identifiant de document" AS mutation_id,
-    MAX("Valeur fonciere") AS price,        -- Total transaction price
-    SUM("Surface reelle bati") AS total_surface,  -- Sum all lot surfaces
-    MAX("Valeur fonciere") / SUM("Surface reelle bati") AS price_m2
-FROM dvf
-GROUP BY "Identifiant de document", ...
+"Date mutation" || '|' || 
+"Code departement" || '|' ||
+LPAD(CAST("Code commune" AS VARCHAR), 3, '0') || '|' ||
+"No disposition" || '|' ||
+CAST("Valeur fonciere" AS VARCHAR) AS mutation_id
 ```
 
-**Corrected result:**
-- Price: €42,048,908
-- Total Surface: ~800 m² (sum of all apartments)
-- Correct €/m²: ~52,561 (still high, but realistic for a bulk investment)
+Transactions are grouped by:
+- Date, Department, Commune, Disposition number, Price, Postal code, Commune name, Property type
 
-### Implementation
+This correctly aggregates multi-lot sales while preserving distinct transactions.
 
-The fix is implemented in `src/data/etl.py`:
+---
 
-```python
-def create_dvf_clean(con):
-    """Creates cleaned DVF table with deduplicated multi-lot transactions."""
-    con.execute("""
-        CREATE TABLE dvf_clean AS
-        SELECT
-            "Identifiant de document" AS mutation_id,
-            MAX("Valeur fonciere") AS price,
-            SUM("Surface reelle bati") AS total_surface,
-            COUNT(*) AS n_lots,
-            MAX("Valeur fonciere") / NULLIF(SUM("Surface reelle bati"), 0) AS price_m2
-        FROM dvf
-        WHERE "Nature mutation" = 'Vente'
-        AND "Type local" IN ('Maison', 'Appartement')
-        GROUP BY "Identifiant de document", ...
-    """)
+## Price Filtering
+
+Outlier filtering is applied at different pipeline stages:
+
+### ETL Stage (`dvf_clean` table)
+```sql
+WHERE "Valeur fonciere" > 0
+AND "Surface reelle bati" > 0
+AND "Type local" IN ('Maison', 'Appartement')
 ```
 
-### Tables
+### Precompute Stage (statistics calculation)
+```sql
+WHERE price_m2 > 100     -- Exclude unrealistic low prices
+AND price_m2 < 50000     -- Exclude extreme luxury/errors
+```
+
+| Threshold | Value | Rationale |
+|-----------|-------|-----------|
+| Minimum | 100 €/m² | Below this is likely data error or special sale |
+| Maximum | 50,000 €/m² | Above this is extreme luxury or bulk sale error |
+
+---
+
+## Database Tables
 
 | Table | Description |
 |-------|-------------|
 | `dvf` | Raw DVF data (one row per lot) |
 | `dvf_clean` | Cleaned data (one row per unique transaction) |
+| `parcels` | View over cadastre.parquet (external query) |
 
-**Always use `dvf_clean` for price statistics.**
+> [!IMPORTANT]
+> **Always use `dvf_clean` for price statistics** - the raw `dvf` table contains duplicate prices.
 
 ---
 
 ## Pipeline Steps
 
-Run the full pipeline with:
+Run the full pipeline:
 ```bash
 uv run python -m src.data.pipeline
 ```
@@ -103,14 +130,69 @@ uv run python -m src.data.pipeline --step split      # Step 6
 ```
 
 ### Step 1: ETL (`--step etl`)
+
 1. **Extract DVF zips** → `data/dvf_extracted/`
 2. **Ingest raw DVF** → `dvf` table
 3. **Create cleaned DVF** → `dvf_clean` table (deduplicates multi-lot)
 4. **Download Admin Express** → `data/admin_express/`
 
 ### Step 2: Precompute (`--step precompute`)
-5. **Convert shapefiles** → `src/frontend/*.geojson`
-6. **Precompute stats** → `stats_cache.json`
+
+5. **Geometry Processing** (`src.data.pipeline.geometry`)
+   - Generates simplified GeoJSONs for all levels
+   - Coordinates rounded to 5 decimals (~1m precision)
+   - Standard GEOS simplification (fast, memory efficient)
+   - Merges Paris/Lyon/Marseille arrondissements for better granularity
+
+6. **Statistics** (`src.data.pipeline.stats`)
+   - SQL-based aggregation for speed
+   - Computes weighted median price, Q25, Q75
+   - Aggregates up from Commune → Canton → Department → Region → Country
 
 ### Step 3: Split (`--step split`)
+
 7. **Split communes by department** → `src/frontend/communes/*.geojson`
+   - Enables lazy loading on the frontend
+   - Only loads departments visible in viewport
+
+---
+
+## Output Files
+
+| File | Location | Description |
+|------|----------|-------------|
+| `country.geojson` | `src/frontend/` | Country outline with stats |
+| `regions.geojson` | `src/frontend/` | 18 regions with stats |
+| `departements.geojson` | `src/frontend/` | 101 departments with stats |
+| `cantons.geojson` | `src/frontend/` | ~2,000 cantons with stats |
+| `{dept}.geojson` | `src/frontend/communes/` | Per-department commune files |
+| `stats_cache.json` | `src/frontend/` | All-level stats cache |
+| `top_expensive.json` | `src/frontend/` | Top 10 expensive communes |
+
+---
+
+## Configuration
+
+All pipeline configuration is centralized in `src/data/config.py`:
+
+- **Paths**: Data directories, file locations
+- **Simplification tolerances**: Per-level geometry simplification
+- **Field mappings**: Admin Express column names
+- **Price thresholds**: Min/max €/m² for outlier filtering
+- **Department → Region mapping**: 2016 region boundaries
+
+---
+
+## Future Work
+
+The following modules are preserved for future benchmarking:
+
+| Module | Purpose |
+|--------|---------|
+| `generate_tiles.py` | tippecanoe-based PMTiles generation |
+| `precompute_parcels.py` | Parcel extraction with DVF join |
+
+These would enable:
+- Self-hosted vector tiles with custom parcel styling
+- Per-parcel price coloring (vs. commune-level choropleth)
+- Hover tooltips on individual properties

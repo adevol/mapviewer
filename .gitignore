@@ -34,8 +34,6 @@ Thumbs.db
 
 # Generated frontend data (regenerate with precompute.py)
 src/frontend/*.geojson
-src/frontend/communes/
-src/frontend/stats_cache.json
 src/frontend/tiles/
 
 # Old/backup data

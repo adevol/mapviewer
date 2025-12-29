@@ -35,11 +35,10 @@ const PRICE_COLOR_EXPR = [
     'interpolate',
     ['linear'],
     ['coalesce', ['get', 'price_m2'], 3000],
-    1000, '#3498db',  // Blue - cheap
-    3000, '#27ae60',  // Green
-    5000, '#f1c40f',  // Yellow
-    7500, '#e67e22',  // Orange
-    10000, '#e74c3c', // Red - expensive
+    1000, '#27ae60',  // Green - cheap
+    4000, '#f1c40f',  // Yellow
+    7000, '#e67e22',  // Orange
+    12000, '#ff0000', // Bright Red - expensive
 ];
 
 // ===========================
@@ -57,7 +56,7 @@ const map = new maplibregl.Map({
                 type: 'vector',
                 url: 'https://openmaptiles.geo.data.gouv.fr/data/planet-vector.json'
             },
-            // French administrative boundaries (communes, départements)
+            // French administrative boundaries (communes, departements)
             'decoupage-administratif': {
                 type: 'vector',
                 url: 'https://openmaptiles.geo.data.gouv.fr/data/decoupage-administratif.json'
@@ -73,11 +72,11 @@ const map = new maplibregl.Map({
                 tileSize: 256,
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
             },
-            // IGN Cadastral parcels (WMS raster tiles)
+            // IGN Cadastral parcels (WMTS - pre-cached tiles, better rate limits)
             'cadastre': {
                 type: 'raster',
                 tiles: [
-                    'https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLES=&FORMAT=image/png&TRANSPARENT=true&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}'
+                    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
                 ],
                 tileSize: 256,
                 minzoom: 14,
@@ -188,6 +187,7 @@ const map = new maplibregl.Map({
                 source: 'decoupage-administratif',
                 'source-layer': 'communes',
                 minzoom: 10,
+                maxzoom: 16,
                 paint: {
                     'line-opacity': 0.4,
                     'line-color': '#666',
@@ -206,14 +206,15 @@ const map = new maplibregl.Map({
                     'line-width': 1
                 }
             },
-            // Cadastral parcels from IGN at high zoom (WMS raster)
+            // IGN Cadastral parcels (WMS raster tiles)
             {
-                id: 'parcelles',
+                id: 'cadastre-layer',
                 type: 'raster',
                 source: 'cadastre',
-                minzoom: 17,
+                minzoom: 14,
+                maxzoom: 19,
                 paint: {
-                    'raster-opacity': 0.8
+                    'raster-opacity': 0.7
                 }
             },
         ],
@@ -362,6 +363,7 @@ map.on('load', async () => {
         type: 'line',
         source: 'communes',
         minzoom: 11,
+        maxzoom: 17,
         paint: {
             'line-color': '#333',
             'line-width': 0.5,
@@ -477,6 +479,41 @@ async function loadVisibleCommunes() {
     }
 }
 
+// Convert price to color using same scale as PRICE_COLOR_EXPR
+function priceToColor(price) {
+    const stops = [
+        [1000, '#27ae60'],
+        [4000, '#f1c40f'],
+        [7000, '#e67e22'],
+        [12000, '#ff0000'],
+    ];
+
+    if (price <= stops[0][0]) return stops[0][1];
+    if (price >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+
+    for (let i = 0; i < stops.length - 1; i++) {
+        if (price >= stops[i][0] && price < stops[i + 1][0]) {
+            const t = (price - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+            return interpolateColor(stops[i][1], stops[i + 1][1], t);
+        }
+    }
+    return '#888888';
+}
+
+// Simple hex color interpolation
+function interpolateColor(c1, c2, t) {
+    const r1 = parseInt(c1.slice(1, 3), 16);
+    const g1 = parseInt(c1.slice(3, 5), 16);
+    const b1 = parseInt(c1.slice(5, 7), 16);
+    const r2 = parseInt(c2.slice(1, 3), 16);
+    const g2 = parseInt(c2.slice(3, 5), 16);
+    const b2 = parseInt(c2.slice(5, 7), 16);
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
 // Load communes when zooming or panning at high zoom
 map.on('moveend', () => {
     loadVisibleCommunes();
@@ -492,7 +529,7 @@ const hoverInfoEl = document.getElementById('hover-info');
 // Helper to format price
 function formatPrice(price) {
     if (!price) return 'N/A';
-    return Math.round(price).toLocaleString() + ' €/m²';
+    return Math.round(price).toLocaleString() + ' EUR/m2';
 }
 
 // Add hover handlers for each layer
@@ -512,7 +549,7 @@ function addHoverHandler(layerId, displayName) {
                     <span class="stat-value">${props.name || props.nom || props.code || 'N/A'}${props.name && props.code ? ` (${props.code})` : ''}</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Prix médian</span>
+                    <span class="stat-label">Prix median</span>
                     <span class="stat-value price">${formatPrice(props.price_m2)}</span>
                 </div>
                 <div class="stat">
@@ -529,17 +566,18 @@ function addHoverHandler(layerId, displayName) {
 
     map.on('mouseleave', `${layerId}-fill`, () => {
         map.getCanvas().style.cursor = '';
-        hoverInfoEl.innerHTML = '<p class="hint">Survolez la carte pour voir les détails</p>';
+        hoverInfoEl.innerHTML = '<p class="hint">Survolez la carte pour voir les details</p>';
     });
 }
 
 // Register hover handlers after map loads
 map.on('load', () => {
     addHoverHandler('country', 'Pays');
-    addHoverHandler('regions', 'Région');
-    addHoverHandler('departements', 'Département');
+    addHoverHandler('regions', 'Region');
+    addHoverHandler('departements', 'Departement');
     addHoverHandler('cantons', 'Canton');
     addHoverHandler('communes', 'Commune');
+    // Note: Cadastre layer uses WMS raster tiles - no hover interaction available
 });
 
 // ===========================
@@ -549,16 +587,55 @@ map.on('load', () => {
 const zoomLevelEl = document.getElementById('zoom-level');
 
 map.on('zoom', () => {
-    if (zoomLevelEl) {
-        zoomLevelEl.textContent = Math.round(map.getZoom());
+    const zoom = map.getZoom().toFixed(1);
+    if (zoomLevelEl) zoomLevelEl.innerText = zoom;
+
+    const parcelStatusEl = document.getElementById('parcel-status');
+    if (parcelStatusEl) {
+        if (zoom >= 14) {
+            parcelStatusEl.innerText = 'Actif';
+            parcelStatusEl.style.color = '#27ae60';
+        } else {
+            parcelStatusEl.innerText = 'Hors zoom (< 14)';
+            parcelStatusEl.style.color = '#e67e22';
+        }
     }
 });
+
+// Note: Cadastre tiles are now loaded directly from IGN's WMS service
 
 // ===========================
 // Error Handling
 // ===========================
 
 map.on('error', (e) => {
-    if (e.error && e.error.status === 404) return;
     console.error('Map error:', e);
 });
+
+// ===========================
+// Top 10 Communes
+// ===========================
+async function loadTopCommunes() {
+    try {
+        const response = await fetch('/top_expensive.json');
+        if (!response.ok) return;
+        const data = await response.json();
+        const listEl = document.getElementById('top-communes-list');
+
+        if (data.data && data.data.length > 0) {
+            listEl.innerHTML = data.data.map((c, i) => `
+                <li>
+                    <span>${i + 1}. ${c.city}</span>
+                    <span class="price">${c.median_price_m2.toLocaleString()} EUR</span>
+                </li>
+            `).join('');
+        } else {
+            listEl.innerHTML = '<li class="hint">Aucune donnee disponible</li>';
+        }
+    } catch (e) {
+        console.warn('Error loading top communes:', e);
+    }
+}
+
+// Call on load
+loadTopCommunes();

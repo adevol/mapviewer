@@ -1,0 +1,64 @@
+{
+  "data": [
+    {
+      "city": "PARIS 06",
+      "code": "75106",
+      "median_price_m2": 14803.0,
+      "volume": 4066
+    },
+    {
+      "city": "PARIS 07",
+      "code": "75107",
+      "median_price_m2": 14521.0,
+      "volume": 4742
+    },
+    {
+      "city": "PARIS 04",
+      "code": "75104",
+      "median_price_m2": 12997.0,
+      "volume": 2681
+    },
+    {
+      "city": "SAINT-JEAN-CAP-FERRAT",
+      "code": "06121",
+      "median_price_m2": 12883.0,
+      "volume": 317
+    },
+    {
+      "city": "PARIS 01",
+      "code": "75101",
+      "median_price_m2": 12767.0,
+      "volume": 1622
+    },
+    {
+      "city": "PARIS 08",
+      "code": "75108",
+      "median_price_m2": 12626.0,
+      "volume": 3387
+    },
+    {
+      "city": "PARIS 05",
+      "code": "75105",
+      "median_price_m2": 12270.0,
+      "volume": 4401
+    },
+    {
+      "city": "PARIS 03",
+      "code": "75103",
+      "median_price_m2": 12257.0,
+      "volume": 3439
+    },
+    {
+      "city": "VAL-D ISERE",
+      "code": "73304",
+      "median_price_m2": 12034.0,
+      "volume": 600
+    },
+    {
+      "city": "PARIS 02",
+      "code": "75102",
+      "median_price_m2": 11691.0,
+      "volume": 2280
+    }
+  ]
+}
