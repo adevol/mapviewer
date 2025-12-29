@@ -12,7 +12,7 @@ This document describes the MapViewer data pipeline, including data sources, tra
 |-------|-------|
 | **Description** | French real estate transaction records |
 | **Source** | [data.gouv.fr/datasets/demandes-de-valeurs-foncieres](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres/) |
-| **Coverage** | 2020 S2 - 2025 S1 (~4.5 years) |
+| **Coverage** | 2020 S2 - 2025 S1 (approx 5 years) |
 | **Filters Applied** | `price_m2` between 100€ and 50,000€ |
 | | `nature_mutation` = 'Vente' |
 | | Property types: 'Maison', 'Appartement' only |
@@ -45,12 +45,12 @@ This document describes the MapViewer data pipeline, including data sources, tra
 
 DVF records **bulk building sales** with the **total transaction price on each lot row**.
 
-**Example - Villeron bulk sale:**
+**Example - bulk sale:**
 
 | Row | Property | Price (€) | Surface (m²) | Calculated €/m² |
 |-----|----------|-----------|--------------|-----------------|
-| 1 | Apartment | 42,048,908 | 23 | 1,828,213 ❌ |
-| 2 | Apartment | 42,048,908 | 24 | 1,752,038 ❌ |
+| 1 | Apartment | 42,048,908 | 23 | 1,828,213 |
+| 2 | Apartment | 42,048,908 | 24 | 1,752,038 |
 | ... | ... | ... | ... | ... |
 
 The €42M is the **total building price**, not the individual apartment price.
@@ -111,7 +111,7 @@ AND price_m2 < 50000     -- Exclude extreme luxury/errors
 | `parcels` | View over cadastre.parquet (external query) |
 
 > [!IMPORTANT]
-> **Always use `dvf_clean` for price statistics** - the raw `dvf` table contains duplicate prices.
+> **Always use `dvf_clean` for price statistics** - the raw `dvf` table contains duplicate prices as explained in the [Data Quality Issues](#data-quality-issues) section.
 
 ---
 

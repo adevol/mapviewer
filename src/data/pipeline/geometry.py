@@ -51,8 +51,6 @@ def simplify_fast(gdf: gpd.GeoDataFrame, level: str) -> gpd.GeoDataFrame:
     tolerance = SIMPLIFY_TOLERANCE.get(level, 0.001)
     logger.debug(f"Fast simplifying {level}: tolerance={tolerance}m")
 
-    # preserve_topology=True prevents invalid geometries (self-intersection)
-    # but does NOT guarantee shared boundaries between polygons.
     gdf = gdf.copy()
     gdf["geometry"] = gdf.geometry.simplify(tolerance, preserve_topology=True)
     return gdf
@@ -102,7 +100,6 @@ def save_geojson(gdf: gpd.GeoDataFrame, output_path: Path, precision: int = 5) -
     if gdf.crs and gdf.crs.to_epsg() != 4326:
         gdf = gdf.to_crs(epsg=4326)
 
-    # Manual serialization to control precision and formatting
     features = []
     for _, row in gdf.iterrows():
         if row.geometry is None or row.geometry.is_empty:
@@ -112,7 +109,6 @@ def save_geojson(gdf: gpd.GeoDataFrame, output_path: Path, precision: int = 5) -
         geom_rounded = round_coordinates(geom_json, precision)
 
         props = row.drop("geometry").to_dict()
-        # Remove null properties to save space
         props = {k: v for k, v in props.items() if pd.notna(v)}
 
         feature = {"type": "Feature", "properties": props, "geometry": geom_rounded}
@@ -121,7 +117,6 @@ def save_geojson(gdf: gpd.GeoDataFrame, output_path: Path, precision: int = 5) -
     geojson = {"type": "FeatureCollection", "features": features}
 
     with open(output_path, "w", encoding="utf-8") as f:
-        # separators=(',', ':') eliminates spaces
         json.dump(geojson, f, ensure_ascii=False, separators=(",", ":"))
 
     size_mb = output_path.stat().st_size / (1024 * 1024)
@@ -157,7 +152,6 @@ def load_and_simplify(
     else:
         gdf = simplify_with_topology(gdf, level)
 
-    # Standardize columns
     gdf = gdf.rename(columns={code_field: "code", name_field: "name"})
     gdf = gdf[["code", "name", "geometry"]]
 
