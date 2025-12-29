@@ -6,22 +6,11 @@ Interactive map showing real estate prices (€/m²) across France using DVF (De
 
 ## Data Setup
 
-Before running the pipeline, download DVF data (last 5 years recommended):
+DVF data (last 5 years) is **automatically downloaded** when you run the pipeline.
 
-1. Visit [DVF on data.gouv.fr](https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres/)
-2. Download the annual CSV files (e.g., `valeursfoncieres-2024.txt`, `valeursfoncieres-2023.txt`, etc.)
-3. Place them in `data_raw/`:
+Alternatively, you can manually download from [DVF on data.gouv.fr](https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres/) and place files in `data/raw_data/`.
 
-```
-data_raw/
-├── valeursfoncieres-2024.txt
-├── valeursfoncieres-2023.txt
-├── valeursfoncieres-2022.txt
-├── valeursfoncieres-2021.txt
-└── valeursfoncieres-2020.txt
-```
-
-> **Note**: Each file is ~1-2 GB. The pipeline will merge all files during ETL.
+> **Note**: Each annual file is ~1-2 GB. Total download is ~8 GB.
 
 ## Quick Start
 

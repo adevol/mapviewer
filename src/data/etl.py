@@ -24,6 +24,7 @@ from .config import (
     ADMIN_EXPRESS_URL,
     DATA_DIR,
     DB_PATH,
+    DVF_DOWNLOAD_URLS,
     EXTRACTED_DVF_DIR,
     RAW_DATA_DIR,
 )
@@ -61,6 +62,36 @@ def download_admin_express(url: str, output_dir: Path) -> None:
 
     archive_path.unlink()
     logger.info("Admin Express ready.")
+
+
+def download_dvf_data() -> None:
+    """Downloads DVF data files from data.gouv.fr if not already present.
+
+    Downloads the last 5 years of DVF data as configured in DVF_DOWNLOAD_URLS.
+    Files are saved to RAW_DATA_DIR.
+    """
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    for filename, url in DVF_DOWNLOAD_URLS.items():
+        filepath = RAW_DATA_DIR / filename
+        if filepath.exists():
+            logger.info(f"{filename} already exists. Skipping download.")
+            continue
+
+        logger.info(f"Downloading {filename}...")
+        try:
+            response = requests.get(url, stream=True, timeout=600)
+            response.raise_for_status()
+
+            with open(filepath, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            logger.info(f"Downloaded {filename}")
+        except Exception as e:
+            logger.warning(f"Failed to download {filename}: {e}")
+
+    logger.info("DVF data download complete.")
 
 
 def extract_dvf_zips() -> None:
@@ -233,16 +264,19 @@ def main() -> None:
         # 1. Download Admin Reference (optional, for lower zoom levels)
         download_admin_express(ADMIN_EXPRESS_URL, ADMIN_EXPRESS_DIR)
 
-        # 2. Extract DVF zips
+        # 2. Download DVF data from data.gouv.fr
+        download_dvf_data()
+
+        # 3. Extract DVF zips
         extract_dvf_zips()
 
-        # 3. Init DB
+        # 4. Init DB
         con = init_duckdb()
 
-        # 4. Ingest DVF (raw)
+        # 5. Ingest DVF (raw)
         ingest_dvf_data(con)
 
-        # 5. Create cleaned DVF table (deduplicates multi-lot transactions)
+        # 6. Create cleaned DVF table (deduplicates multi-lot transactions)
         create_dvf_clean(con)
 
         con.close()

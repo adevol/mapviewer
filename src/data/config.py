@@ -33,6 +33,16 @@ ADMIN_EXPRESS_URL = (
 )
 ADMIN_EXPRESS_DIR = DATA_DIR / "admin_express"
 
+# DVF download URLs (data.gouv.fr API) - last 5 years (updated October 2025)
+DVF_DOWNLOAD_URLS = {
+    "valeursfoncieres-2025-s1.txt.zip": "https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20251018-234902/valeursfoncieres-2025-s1.txt.zip",
+    "valeursfoncieres-2024.txt.zip": "https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20251018-234857/valeursfoncieres-2024.txt.zip",
+    "valeursfoncieres-2023.txt.zip": "https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20251018-234851/valeursfoncieres-2023.txt.zip",
+    "valeursfoncieres-2022.txt.zip": "https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20251018-234844/valeursfoncieres-2022.txt.zip",
+    "valeursfoncieres-2021.txt.zip": "https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20251018-234836/valeursfoncieres-2021.txt.zip",
+    "valeursfoncieres-2020-s2.txt.zip": "https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20251018-234831/valeursfoncieres-2020-s2.txt.zip",
+}
+
 # ADMIN EXPRESS 2025 paths (current commune boundaries)
 ADMIN_EXPRESS_SHP_DIR = (
     ADMIN_EXPRESS_DIR
