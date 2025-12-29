@@ -15,7 +15,7 @@ This document describes the MapViewer data pipeline, including data sources, tra
 | **Coverage** | 2020 S2 - 2025 S1 (approx 5 years) |
 | **Filters Applied** | `price_m2` between 100€ and 50,000€ |
 | | `nature_mutation` = 'Vente' |
-| | Property types: 'Maison', 'Appartement' only |
+| | Property types: keep 'Maison', 'Appartement' only |
 
 ### Admin Express (Administrative Boundaries)
 
@@ -35,7 +35,7 @@ This document describes the MapViewer data pipeline, including data sources, tra
 | **Source (data)** | [cadastre.data.gouv.fr](https://cadastre.data.gouv.fr/datasets/cadastre-etalab) |
 
 > [!NOTE]
-> Parcel visualization uses IGN's WMTS tile service for simplicity. Self-hosted MVT tiles with price coloring are a future enhancement (see `generate_tiles.py`).
+> Parcel visualization uses IGN's WMTS tile service for simplicity. Self-hosted MVT tiles with price coloring are a potential future enhancement (see `generate_tiles.py`).
 
 ---
 
@@ -43,7 +43,7 @@ This document describes the MapViewer data pipeline, including data sources, tra
 
 ### Issue 1: Multi-Lot Transactions
 
-DVF records **bulk building sales** with the **total transaction price on each lot row**.
+DVF records **bulk building sales** with the **total transaction price repeated on each lot row**.
 
 **Example - bulk sale:**
 
@@ -61,7 +61,7 @@ The `"Identifiant de document"` column is **always NULL** in DVF data (all 20M+ 
 
 ### Solution: Synthetic Transaction ID
 
-The `dvf_clean` table uses a **synthetic transaction ID** built from multiple fields:
+The `dvf_clean` table uses a **synthetic transaction ID** built from multiple fields in the dataset:
 
 ```sql
 "Date mutation" || '|' || 
@@ -74,7 +74,7 @@ CAST("Valeur fonciere" AS VARCHAR) AS mutation_id
 Transactions are grouped by:
 - Date, Department, Commune, Disposition number, Price, Postal code, Commune name, Property type
 
-This correctly aggregates multi-lot sales while preserving distinct transactions.
+This aggregates multi-lot sales with high precision while preserving distinct transactions.
 
 ---
 
@@ -131,10 +131,10 @@ uv run python -m src.data.pipeline --step split      # Step 6
 
 ### Step 1: ETL (`--step etl`)
 
-1. **Extract DVF zips** → `data/dvf_extracted/`
-2. **Ingest raw DVF** → `dvf` table
-3. **Create cleaned DVF** → `dvf_clean` table (deduplicates multi-lot)
-4. **Download Admin Express** → `data/admin_express/`
+1. **Extract DVF zips** - `data/dvf_extracted/`
+2. **Ingest raw DVF** - `dvf` table
+3. **Create cleaned DVF** - `dvf_clean` table (deduplicates multi-lot)
+4. **Download Admin Express** - `data/admin_express/`
 
 ### Step 2: Precompute (`--step precompute`)
 
@@ -151,7 +151,7 @@ uv run python -m src.data.pipeline --step split      # Step 6
 
 ### Step 3: Split (`--step split`)
 
-7. **Split communes by department** → `src/frontend/communes/*.geojson`
+7. **Split communes by department** - `src/frontend/communes/*.geojson`
    - Enables lazy loading on the frontend
    - Only loads departments visible in viewport
 
