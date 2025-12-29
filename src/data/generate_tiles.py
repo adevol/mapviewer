@@ -1,12 +1,23 @@
 ﻿"""
-Vector tile generation using tippecanoe.
+[FUTURE WORK] Vector tile generation using tippecanoe.
+
+This module is NOT currently used in the production pipeline.
+The map uses IGN's WMTS service for cadastral visualization instead.
+
+Why this was deferred:
+- Self-hosted MVT requires tippecanoe (Linux/WSL only)
+- Cadastre parquet is ~21GB, generates large tile files
+- Latency issues with real-time MVT generation from DuckDB
+- IGN WMTS provides immediate value without infrastructure
+
+To enable in future:
+1. Define missing config variables (PARCELS_GEOJSON_DIR, TILES_OUTPUT_DIR, etc.)
+2. Run precompute_parcels.py to generate parcel GeoJSONs
+3. Install tippecanoe in WSL
+4. Run: python -m src.data.generate_tiles
 
 Converts enriched GeoJSON to PMTiles for each aggregation level.
 Non-parcel layers are combined into a single tileset; parcels are separate.
-
-Usage:
-    python -m src.data.generate_tiles
-    python -m src.data.pipeline --step tiles
 """
 
 import json

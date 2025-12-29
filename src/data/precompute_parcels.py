@@ -1,11 +1,22 @@
 """
-Extract sold parcels from cadastre by joining with DVF transactions.
+[FUTURE WORK] Extract sold parcels from cadastre by joining with DVF transactions.
+
+This module is NOT currently used in the production pipeline.
+The map uses IGN's WMTS service for cadastral visualization instead.
+
+Why this was deferred:
+- Requires ~21GB cadastre.parquet file
+- Joins are slow and memory-intensive
+- Self-hosted MVT tiles require additional infrastructure
+- IGN WMTS provides immediate parcel visualization without preprocessing
+
+To enable in future:
+1. Download cadastre.parquet from cadastre.data.gouv.fr
+2. Run: python -m src.data.precompute_parcels
+3. Then run generate_tiles.py to create PMTiles
 
 Creates GeoJSON files per department containing only parcels that have
-been sold, enriched with transaction price data.
-
-Usage:
-    python -m src.data.precompute_parcels
+been sold, enriched with transaction price data (price_m2, n_sales).
 """
 
 import json

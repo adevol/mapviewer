@@ -1,17 +1,24 @@
 """
 FastAPI backend for the MapViewer project.
 
-Provides endpoints for:
-- Vector Tile (MVT) generation from DuckDB.
-- Aggregated statistics for map coloring.
-- Top 10 cities report.
+Current endpoints:
+- Health check
+- Aggregated statistics for map coloring
+- Top 10 cities report
+- Static file serving (frontend)
+
+Future work (MVT tiles):
+- Vector Tile generation from DuckDB (preserved but not used)
+- Parcel visualization uses IGN WMTS instead
 
 Usage:
     uv run uvicorn src.backend.main:app --reload
 """
 
+import json
 import math
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +28,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 # Constants
+STATIC_DIR = Path("src/frontend")
 DATA_DIR = Path("data")
+# Pre-calculated commune stats logic
+COMMUNE_STATS_VIEW_NAME = "commune_stats_cache"
 DB_PATH = DATA_DIR / "real_estate.duckdb"
+CADASTRE_FILE = DATA_DIR / "cadastre.parquet"
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 # In-memory cache for expensive queries
@@ -45,25 +56,124 @@ app.add_middleware(
 
 
 def get_db() -> duckdb.DuckDBPyConnection:
-    """Gets a DuckDB connection.
+    """Connect to the DuckDB database and ensure spatial is ready."""
 
-    Returns:
-        A read-only DuckDB connection.
-    """
-    con = duckdb.connect(str(DB_PATH), read_only=True)
-    con.execute("LOAD spatial;")
-    return con
+    if not DB_PATH.exists():
+        print(f"CRITICAL ERROR: Database NOT FOUND at {DB_PATH.absolute()}")
+        raise FileNotFoundError(f"Database not found: {DB_PATH}")
+
+    try:
+        con = duckdb.connect(str(DB_PATH), read_only=True)
+        con.execute("INSTALL spatial;")
+        con.execute("LOAD spatial;")
+
+        # Check if parcels view is healthy.
+        con.execute("SELECT 1 FROM parcels LIMIT 1").fetchone()
+        return con
+    except Exception as e:
+        print(f"DB Connection Warning: {e}")
+        # If it's a type mismatch, attempt recreate
+        if "types don't match" in str(e) or "Binder Error" in str(e):
+            print("RECREATING PARCELS VIEW (self-healing)...")
+            try:
+                # Need write access
+                tmp_con = duckdb.connect(str(DB_PATH))
+                tmp_con.execute("LOAD spatial;")
+                tmp_con.execute(
+                    f"CREATE OR REPLACE VIEW parcels AS SELECT * FROM read_parquet('{CADASTRE_FILE}');"
+                )
+                tmp_con.close()
+                return duckdb.connect(str(DB_PATH), read_only=True)
+            except Exception as e2:
+                print(f"CRITICAL: Failed to recreate view: {e2}")
+                raise
+        raise
+
+
+def sync_stats_cache():
+    """Sync per-department commune GeoJSONs to DuckDB for fast joins using native JSON engine."""
+    communes_dir = STATIC_DIR / "communes"
+    if not communes_dir.exists():
+        print(f"Warning: {communes_dir} not found. Stats will be missing.")
+        return
+
+    # Use forward slashes for DuckDB globbing on Windows
+    pattern = str(communes_dir / "*.geojson").replace("\\", "/")
+
+    print(f"SYNCING STATS FROM {pattern}...")
+    start_time = time.time()
+    try:
+        # Need write access
+        con = duckdb.connect(str(DB_PATH))
+        con.execute("INSTALL json; LOAD json;")
+
+        # Super-fast unnest + JSON extract (skips massive geometry data)
+        con.execute(
+            f"""
+            CREATE OR REPLACE TABLE commune_stats_cache AS
+            SELECT 
+                CAST(feature->>'$.properties.code' AS VARCHAR) as insee_com,
+                CAST(feature->>'$.properties.price_m2' AS DOUBLE) as median_price_m2,
+                CAST(feature->>'$.properties.n_sales' AS INTEGER) as volume
+            FROM (
+                SELECT unnest(features) as feature
+                FROM read_json('{pattern}', format='auto')
+            )
+            WHERE insee_com IS NOT NULL;
+        """
+        )
+
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commune_cache ON commune_stats_cache (insee_com)"
+        )
+
+        count = con.execute("SELECT count(*) FROM commune_stats_cache").fetchone()[0]
+        con.close()
+
+        duration = time.time() - start_time
+        print(f"STATS SYNCED: {count} communes indexed in {duration:.3f}s.")
+    except Exception as e:
+        print(f"Error syncing stats: {e}")
+        traceback.print_exc()
+
+
+@app.on_event("startup")
+async def startup_event():
+    print("\n--- MAPVIEWER BACKEND STARTING ---")
+    print(f"DB Path: {DB_PATH.absolute()}")
+    sync_stats_cache()
 
 
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
-    return {"status": "ok"}
+    print(">>> Health check endpoint hit! Backend is active.")
+    return {"status": "ok", "db_exists": DB_PATH.exists()}
+
+
+print("--- MAPVIEWER BACKEND STARTING ---")
+print(f"Database: {DB_PATH.absolute()}")
+print("----------------------------------")
+
+
+# =============================================================================
+# [FUTURE WORK] MVT Tile Generation
+# =============================================================================
+# The following code generates Mapbox Vector Tiles dynamically from DuckDB.
+# Currently NOT USED - the frontend uses IGN's WMTS service for cadastral parcels.
+#
+# Why this was deferred:
+# - ~3s latency per tile request
+# - Requires cadastre.parquet (~21GB)
+# - Rate limiting and caching would need implementation
+#
+# To enable: uncomment the endpoint and ensure parcels view exists in DuckDB.
+# =============================================================================
 
 
 @app.get("/api/debug/tile.pbf")
 async def debug_tile() -> Response:
-    """Serves a pre-generated valid MVT tile for debugging."""
+    """[FUTURE] Serves a pre-generated valid MVT tile for debugging."""
     tile_file = Path("test_mvt_output.pbf")
     if tile_file.exists():
         with open(tile_file, "rb") as f:
@@ -101,31 +211,31 @@ def tile_to_bbox_2154(z: int, x: int, y: int) -> tuple[float, float, float, floa
 
 
 @app.get("/api/tiles/{z}/{x}/{y}.pbf")
-async def get_tile(z: int, x: int, y: int) -> Response:
-    """Generates a Mapbox Vector Tile (MVT) for the given tile coordinates.
+async def get_tile(z: int, x: int, y: int):
+    """[FUTURE] Generates a Mapbox Vector Tile (MVT) for the given tile coordinates.
 
-    Uses bbox pre-filtering on geometry_bbox column for efficient queries.
-
-    Args:
-        z: Zoom level.
-        x: Tile X coordinate.
-        y: Tile Y coordinate.
-
-    Returns:
-        The MVT tile as binary protobuf.
+    Not currently used - frontend uses IGN WMTS for cadastral parcels.
+    Preserved for future benchmarking of self-hosted tile approach.
     """
+    print(f"\n[GET_TILE] Start: {z}/{x}/{y}")
+
     try:
-        # Return empty tile for low zoom levels (too many parcels)
-        if z < 14:
+        # USER REQUEST: Only show parcel data on zoom levels of 17+
+        if z < 17:
+            print(f"[GET_TILE] Ignore (zoom {z} < 17)")
             return Response(content=b"", media_type="application/x-protobuf")
 
-        # Pre-compute approximate bbox in EPSG:2154 for fast filtering
+        print(f"[GET_TILE] Calculating bbox for 2154...")
         xmin, ymin, xmax, ymax = tile_to_bbox_2154(z, x, y)
 
+        print(f"[GET_TILE] Getting DB connection...")
         con = get_db()
 
-        # Use geometry_bbox for fast pre-filtering before expensive ST_Intersects
-        # This dramatically reduces rows scanned from 160M to just those in bbox
+        start_time = time.time()
+        print(f"[GET_TILE] DB Connected. Running SQL...")
+
+        # Optimization: Use precomputed stats from stats_cache.json
+        # which are loaded into commune_stats_cache at startup.
         query = f"""
         WITH tile_env AS (
             SELECT ST_TileEnvelope({z}, {x}, {y}) AS env
@@ -137,15 +247,6 @@ async def get_tile(z: int, x: int, y: int) -> Response:
             SELECT ST_Transform(env, 'EPSG:3857', 'EPSG:2154') AS geom
             FROM tile_env
         ),
-        -- Get commune stats for coloring (V1: uniform price per commune)
-        commune_stats AS (
-            SELECT
-                dept_code || LPAD(CAST(commune_code AS VARCHAR), 3, '0') AS insee_com,
-                APPROX_QUANTILE(price_m2, 0.5) AS median_price_m2,
-                COUNT(*) AS volume
-            FROM dvf_clean
-            GROUP BY 1
-        ),
         -- Fast bbox pre-filter using geometry_bbox column
         candidate_parcels AS (
             SELECT id, commune, departement, contenance, geometry
@@ -155,7 +256,7 @@ async def get_tile(z: int, x: int, y: int) -> Response:
               AND geometry_bbox.ymin <= {ymax}
               AND geometry_bbox.ymax >= {ymin}
               AND geometry IS NOT NULL
-            LIMIT 20000
+            LIMIT 50000
         ),
         tile_data AS (
             SELECT
@@ -163,7 +264,6 @@ async def get_tile(z: int, x: int, y: int) -> Response:
                 p.commune,
                 p.departement,
                 p.contenance,
-                -- Use commune median price
                 COALESCE(cs.median_price_m2, 0) AS price_m2,
                 COALESCE(cs.volume, 0) AS n_sales,
                 ST_AsMVTGeom(
@@ -175,9 +275,9 @@ async def get_tile(z: int, x: int, y: int) -> Response:
                 ) AS geom
             FROM candidate_parcels p
             CROSS JOIN bounds_2154 b
-            LEFT JOIN commune_stats cs ON p.commune = cs.insee_com
+            LEFT JOIN commune_stats_cache cs ON p.commune = cs.insee_com
             WHERE ST_Intersects(p.geometry, b.geom)
-            LIMIT 10000
+            LIMIT 20000
         )
         SELECT ST_AsMVT(tile_data, 'parcels', 4096, 'geom') AS mvt
         FROM tile_data
@@ -185,15 +285,22 @@ async def get_tile(z: int, x: int, y: int) -> Response:
         """
 
         result = con.execute(query).fetchone()
+        duration = time.time() - start_time
         con.close()
 
         if result is None or result[0] is None:
+            print(f"  Result: 0 bytes (Empty) in {duration:.3f}s")
             return Response(content=b"", media_type="application/x-protobuf")
 
         mvt_bytes = bytes(result[0])
+        print(f"  Result: {len(mvt_bytes):,} bytes in {duration:.3f}s")
         return Response(content=mvt_bytes, media_type="application/x-protobuf")
 
     except Exception as e:
+        import traceback
+
+        print(f"ERROR generating tile {z}/{x}/{y}:")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
