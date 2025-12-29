@@ -1,5 +1,7 @@
 # MapViewer - French Real Estate Price Visualization
 
+**[🗺️ Live Demo](https://mapviewer-g7hx2k8ja-alexander-de-volders-projects.vercel.app/)**
+
 Interactive map showing real estate prices (€/m²) across France using DVF (Demandes de Valeurs Foncières) open data.
 
 ## Data Setup
