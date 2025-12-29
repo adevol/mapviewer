@@ -6,7 +6,7 @@ for all geographic levels, applying filtering and aggregation.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import duckdb
 from tqdm import tqdm
@@ -61,6 +61,7 @@ def compute_standard_stats(
     group_by_expr: str,
     alias: str = "code",
     additional_where: str = "1=1",
+    con: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> Dict[str, Any]:
     """Computes price statistics (median, quartiles) for a given grouping.
 
@@ -68,11 +69,14 @@ def compute_standard_stats(
         group_by_expr: SQL expression to group by (e.g., 'dept_code').
         alias: Column alias for the grouping in results.
         additional_where: Extra SQL WHERE conditions.
+        con: Optional DuckDB connection to reuse across calls.
 
     Returns:
         Tuple of (stats_dict, name_map) with price statistics per group.
     """
-    con = get_db()
+    owns_con = con is None
+    if owns_con:
+        con = get_db()
 
     query = f"""
     SELECT
@@ -106,7 +110,8 @@ def compute_standard_stats(
                     names[str(code)] = name
         return stats, names
     finally:
-        con.close()
+        if owns_con:
+            con.close()
 
 
 def compute_commune_stats() -> tuple[Dict[str, Any], Dict[str, str]]:
@@ -124,17 +129,20 @@ def compute_commune_stats() -> tuple[Dict[str, Any], Dict[str, str]]:
     dept_result = con.execute(
         "SELECT DISTINCT dept_code FROM dvf_clean WHERE dept_code IS NOT NULL ORDER BY 1"
     ).fetchall()
-    con.close()
     departments = [row[0] for row in dept_result]
     logger.info(f"Found {len(departments)} departments in DVF data")
 
-    for dept_code in tqdm(departments, desc="Processing departments"):
-        dept_stats, dept_names = compute_standard_stats(
-            INSEE_COMMUNE_EXPR,
-            additional_where=f"dept_code = '{dept_code}'",
-        )
-        stats.update(dept_stats)
-        names.update(dept_names)
+    try:
+        for dept_code in tqdm(departments, desc="Processing departments"):
+            dept_stats, dept_names = compute_standard_stats(
+                INSEE_COMMUNE_EXPR,
+                additional_where=f"dept_code = '{dept_code}'",
+                con=con,
+            )
+            stats.update(dept_stats)
+            names.update(dept_names)
+    finally:
+        con.close()
 
     # 2. Aggregate arrondissements into parent communes (Paris, Lyon, Marseille)
     parent_data = {}
@@ -188,6 +196,20 @@ def compute_region_stats() -> Dict[str, Any]:
         Dictionary of stats keyed by region code.
     """
     logger.info("Computing region stats...")
+
+    con = get_db()
+    dept_result = con.execute(
+        "SELECT DISTINCT dept_code FROM dvf_clean WHERE dept_code IS NOT NULL ORDER BY 1"
+    ).fetchall()
+    con.close()
+    dept_codes = {str(row[0]) for row in dept_result if row[0] is not None}
+    missing = sorted(dept_codes - set(DEPT_TO_REGION.keys()))
+    if missing:
+        logger.warning(
+            "Missing region mapping for %d departments: %s",
+            len(missing),
+            ", ".join(missing),
+        )
 
     case_stmt = (
         "CASE "
