@@ -220,11 +220,13 @@ def main():
     # --- Stats Phase ---
     logger.info("Computing statistics...")
 
+    commune_stats, commune_names = stats.compute_commune_stats()
+
     all_stats = {
         "country": stats.compute_country_stats(),
         "region": stats.compute_region_stats(),
         "departement": stats.compute_department_stats(),
-        "commune": stats.compute_commune_stats(),
+        "commune": commune_stats,
     }
 
     # Compute canton stats using results + mapping
@@ -236,7 +238,14 @@ def main():
     with open(STATS_OUTPUT, "w", encoding="utf-8") as f:
         json.dump(all_stats, f, ensure_ascii=False, indent=2)
 
+    # Precompute Top 10 expensive communes (min 100 sales)
+    top_10 = stats.compute_top_expensive_communes(all_stats["commune"], commune_names)
+    top_output = OUTPUT_DIR / "top_expensive.json"
+    with open(top_output, "w", encoding="utf-8") as f:
+        json.dump({"data": top_10}, f, ensure_ascii=False, indent=2)
+
     logger.info(f"Stats saved to {STATS_OUTPUT}")
+    logger.info(f"Top 10 saved to {top_output}")
     logger.info("Pipeline complete.")
 
 

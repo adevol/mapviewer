@@ -59,7 +59,8 @@ def compute_standard_stats(
         APPROX_QUANTILE(price_m2, 0.5) AS median,
         APPROX_QUANTILE(price_m2, 0.25) AS q25,
         APPROX_QUANTILE(price_m2, 0.75) AS q75,
-        COUNT(*) AS n
+        COUNT(*) AS n,
+        ANY_VALUE(commune_name) as name
     FROM dvf_clean
     WHERE {get_base_filter()}
     AND {additional_where}
@@ -70,8 +71,9 @@ def compute_standard_stats(
     try:
         result = con.execute(query).fetchall()
         stats = {}
+        names = {}
         for row in result:
-            code, median, q25, q75, n = row
+            code, median, q25, q75, n, name = row
             if code and median:
                 stats[str(code)] = {
                     "median_price_m2": round(median, 0),
@@ -79,34 +81,37 @@ def compute_standard_stats(
                     "q75": round(q75, 0) if q75 else None,
                     "n_sales": n,
                 }
-        return stats
+                if name:
+                    names[str(code)] = name
+        return stats, names
     finally:
         con.close()
 
 
-def compute_commune_stats() -> Dict[str, Any]:
+def compute_commune_stats() -> tuple[Dict[str, Any], Dict[str, str]]:
     """Computes stats for communes, handling PLM arrondissements.
 
-    Optimized to run in batches per department to reduce memory usage.
+    Returns:
+        tuple of (stats_dict, name_map)
     """
     logger.info("Computing commune stats (SQL aggregated by department)...")
 
     stats = {}
+    names = {}
     departments = sorted(list(set(DEPT_TO_REGION.keys())))
 
-    # 1. Compute base stats for all communes (including arrondissements)
-    # processing batch-by-batch (department) to avoid OOM
     for dept_code in tqdm(departments, desc="Processing departments"):
-        # standard standard stats for this department
-        dept_stats = compute_standard_stats(
+        dept_stats, dept_names = compute_standard_stats(
             INSEE_COMMUNE_EXPR,
             additional_where=f"dept_code = '{dept_code}'",
         )
         stats.update(dept_stats)
+        names.update(dept_names)
 
     # 2. Aggregate arrondissements into parent communes (Paris, Lyon, Marseille)
-    # logic: parent stats = weighted average of child (arrondissement) stats
     parent_data = {}
+    plm_names = {"75056": "Paris", "69123": "Lyon", "13055": "Marseille"}
+    names.update(plm_names)
 
     for arr_code, parent_code in ARRONDISSEMENT_TO_COMMUNE.items():
         if arr_code in stats:
@@ -142,9 +147,8 @@ def compute_commune_stats() -> Dict[str, Any]:
                 "q75": round(q75, 0) if q75 else None,
                 "n_sales": d["sales"],
             }
-            logger.debug(f"Aggregated {parent_code}: {d['sales']} sales")
 
-    return stats
+    return stats, names
 
 
 def compute_region_stats() -> Dict[str, Any]:
@@ -159,13 +163,17 @@ def compute_region_stats() -> Dict[str, Any]:
         + " END"
     )
 
-    return compute_standard_stats(case_stmt, "region_code", f"{case_stmt} IS NOT NULL")
+    res_stats, _ = compute_standard_stats(
+        case_stmt, "region_code", f"{case_stmt} IS NOT NULL"
+    )
+    return res_stats
 
 
 def compute_department_stats() -> Dict[str, Any]:
     """Computes department stats."""
     logger.info("Computing department stats...")
-    return compute_standard_stats("dept_code", "dept_code")
+    res_stats, _ = compute_standard_stats("dept_code", "dept_code")
+    return res_stats
 
 
 def compute_country_stats() -> Dict[str, Any]:
@@ -239,3 +247,26 @@ def compute_canton_stats(
             }
 
     return stats
+
+
+def compute_top_expensive_communes(
+    commune_stats: Dict[str, Any], name_map: Dict[str, str]
+) -> list[Dict[str, Any]]:
+    """Computes the top 10 most expensive communes with enough sales volume."""
+    logger.info("Filtering top 10 expensive communes from precomputed stats...")
+
+    top_10 = []
+    for code, s in commune_stats.items():
+        if s.get("n_sales", 0) >= 100:
+            name = name_map.get(code, code)
+            top_10.append(
+                {
+                    "city": name,
+                    "code": code,
+                    "median_price_m2": s["median_price_m2"],
+                    "volume": s["n_sales"],
+                }
+            )
+
+    top_10.sort(key=lambda x: x["median_price_m2"], reverse=True)
+    return top_10[:10]
