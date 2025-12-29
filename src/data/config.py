@@ -99,8 +99,8 @@ SIMPLIFY_TOLERANCE = {
     "region": 300,
     "departement": 150,
     "canton": 100,
-    "commune": 75,
-    "arrondissement": 50,
+    "commune": 30,
+    "arrondissement": 30,
 }
 
 # =============================================================================
@@ -120,11 +120,11 @@ INSEE_COMMUNE_EXPR = "dept_code || LPAD(CAST(commune_code AS VARCHAR), 3, '0')"
 
 # Arrondissement to main commune mapping
 ARRONDISSEMENT_TO_COMMUNE = {
-    # Paris arrondissements (75101-75120) → 75056
+    # Paris arrondissements (75101-75120) -> 75056
     **{f"75{i:03d}": "75056" for i in range(101, 121)},
-    # Lyon arrondissements (69381-69389) → 69123
+    # Lyon arrondissements (69381-69389) -> 69123
     **{f"69{i:03d}": "69123" for i in range(381, 390)},
-    # Marseille arrondissements (13201-13216) → 13055
+    # Marseille arrondissements (13201-13216) -> 13055
     **{f"13{i:03d}": "13055" for i in range(201, 217)},
 }
 
@@ -133,7 +133,7 @@ ARRONDISSEMENT_TO_COMMUNE = {
 # =============================================================================
 
 DEPT_TO_REGION = {
-    # Auvergne-Rhône-Alpes (84)
+    # Auvergne-Rhone-Alpes (84)
     "01": "84",
     "03": "84",
     "07": "84",
@@ -146,7 +146,7 @@ DEPT_TO_REGION = {
     "69": "84",
     "73": "84",
     "74": "84",
-    # Bourgogne-Franche-Comté (27)
+    # Bourgogne-Franche-Comte (27)
     "21": "27",
     "25": "27",
     "39": "27",
@@ -187,7 +187,7 @@ DEPT_TO_REGION = {
     "60": "32",
     "62": "32",
     "80": "32",
-    # Île-de-France (11)
+    # Ile-de-France (11)
     "75": "11",
     "77": "11",
     "78": "11",
@@ -235,7 +235,7 @@ DEPT_TO_REGION = {
     "53": "52",
     "72": "52",
     "85": "52",
-    # Provence-Alpes-Côte d'Azur (93)
+    # Provence-Alpes-Cote d'Azur (93)
     "04": "93",
     "05": "93",
     "06": "93",

@@ -138,11 +138,11 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
     """Creates a cleaned DVF table with deduplicated multi-lot transactions.
 
     DVF records bulk building sales with the TOTAL price on each lot row.
-    E.g., a €42M building sale with 20 apartments shows €42M on each row,
-    leading to absurd €1.8M/m² calculations when dividing by individual surfaces.
+    E.g., a 42M EUR building sale with 20 apartments shows 42M EUR on each row,
+    leading to absurd 1.8M EUR/m2 calculations when dividing by individual surfaces.
 
     Solution: Group by mutation ID ("Identifiant de document") and sum surfaces,
-    keeping the transaction price once. This gives correct price/m² for bulk sales.
+    keeping the transaction price once. This gives correct price/m2 for bulk sales.
 
     See docs/pipeline.md for detailed explanation.
 
