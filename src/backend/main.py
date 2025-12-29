@@ -7,16 +7,10 @@ Current endpoints:
 - Top 10 cities report
 - Static file serving (frontend)
 
-Future work (MVT tiles):
-- Vector Tile generation from DuckDB (preserved but not used)
-- Parcel visualization uses IGN WMTS instead
-
 Usage:
     uv run uvicorn src.backend.main:app --reload
 """
 
-import json
-import math
 import time
 import traceback
 from pathlib import Path
@@ -33,7 +27,6 @@ DATA_DIR = Path("data")
 # Pre-calculated commune stats logic
 COMMUNE_STATS_VIEW_NAME = "commune_stats_cache"
 DB_PATH = DATA_DIR / "real_estate.duckdb"
-CADASTRE_FILE = DATA_DIR / "cadastre.parquet"
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 # In-memory cache for expensive queries
@@ -56,38 +49,13 @@ app.add_middleware(
 
 
 def get_db() -> duckdb.DuckDBPyConnection:
-    """Connect to the DuckDB database and ensure spatial is ready."""
+    """Connect to the DuckDB database."""
 
     if not DB_PATH.exists():
         print(f"CRITICAL ERROR: Database NOT FOUND at {DB_PATH.absolute()}")
         raise FileNotFoundError(f"Database not found: {DB_PATH}")
 
-    try:
-        con = duckdb.connect(str(DB_PATH), read_only=True)
-        con.execute("INSTALL spatial;")
-        con.execute("LOAD spatial;")
-
-        # Check if parcels view is healthy.
-        con.execute("SELECT 1 FROM parcels LIMIT 1").fetchone()
-        return con
-    except Exception as e:
-        print(f"DB Connection Warning: {e}")
-        # If it's a type mismatch, attempt recreate
-        if "types don't match" in str(e) or "Binder Error" in str(e):
-            print("RECREATING PARCELS VIEW (self-healing)...")
-            try:
-                # Need write access
-                tmp_con = duckdb.connect(str(DB_PATH))
-                tmp_con.execute("LOAD spatial;")
-                tmp_con.execute(
-                    f"CREATE OR REPLACE VIEW parcels AS SELECT * FROM read_parquet('{CADASTRE_FILE}');"
-                )
-                tmp_con.close()
-                return duckdb.connect(str(DB_PATH), read_only=True)
-            except Exception as e2:
-                print(f"CRITICAL: Failed to recreate view: {e2}")
-                raise
-        raise
+    return duckdb.connect(str(DB_PATH), read_only=True)
 
 
 def sync_stats_cache():
@@ -154,154 +122,6 @@ async def health_check() -> dict[str, str]:
 print("--- MAPVIEWER BACKEND STARTING ---")
 print(f"Database: {DB_PATH.absolute()}")
 print("----------------------------------")
-
-
-# =============================================================================
-# [FUTURE WORK] MVT Tile Generation
-# =============================================================================
-# The following code generates Mapbox Vector Tiles dynamically from DuckDB.
-# Currently NOT USED - the frontend uses IGN's WMTS service for cadastral parcels.
-#
-# Why this was deferred:
-# - ~3s latency per tile request
-# - Requires cadastre.parquet (~21GB)
-# - Rate limiting and caching would need implementation
-#
-# To enable: uncomment the endpoint and ensure parcels view exists in DuckDB.
-# =============================================================================
-
-
-@app.get("/api/debug/tile.pbf")
-async def debug_tile() -> Response:
-    """[FUTURE] Serves a pre-generated valid MVT tile for debugging."""
-    tile_file = Path("test_mvt_output.pbf")
-    if tile_file.exists():
-        with open(tile_file, "rb") as f:
-            return Response(content=f.read(), media_type="application/x-protobuf")
-    return Response(content=b"", media_type="application/x-protobuf")
-
-
-def tile_to_bbox_2154(z: int, x: int, y: int) -> tuple[float, float, float, float]:
-    """Convert tile coordinates to bounding box in EPSG:2154 (Lambert-93).
-
-    Uses pyproj for accurate coordinate transformation.
-
-    Returns:
-        (xmin, ymin, xmax, ymax) in EPSG:2154 coordinates.
-    """
-    from pyproj import Transformer
-
-    # First get WGS84 bounds from tile coordinates
-    n = 2.0**z
-    lon_min = x / n * 360.0 - 180.0
-    lon_max = (x + 1) / n * 360.0 - 180.0
-    lat_max = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
-    lat_min = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
-
-    # Transform to Lambert-93 (EPSG:2154) using pyproj
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2154", always_xy=True)
-    x1, y1 = transformer.transform(lon_min, lat_min)
-    x2, y2 = transformer.transform(lon_max, lat_max)
-
-    # Add 20% buffer for safety
-    dx = abs(x2 - x1) * 0.2
-    dy = abs(y2 - y1) * 0.2
-
-    return (min(x1, x2) - dx, min(y1, y2) - dy, max(x1, x2) + dx, max(y1, y2) + dy)
-
-
-@app.get("/api/tiles/{z}/{x}/{y}.pbf")
-async def get_tile(z: int, x: int, y: int):
-    """[FUTURE] Generates a Mapbox Vector Tile (MVT) for the given tile coordinates.
-
-    Not currently used - frontend uses IGN WMTS for cadastral parcels.
-    Preserved for future benchmarking of self-hosted tile approach.
-    """
-    print(f"\n[GET_TILE] Start: {z}/{x}/{y}")
-
-    try:
-        # USER REQUEST: Only show parcel data on zoom levels of 17+
-        if z < 17:
-            print(f"[GET_TILE] Ignore (zoom {z} < 17)")
-            return Response(content=b"", media_type="application/x-protobuf")
-
-        print(f"[GET_TILE] Calculating bbox for 2154...")
-        xmin, ymin, xmax, ymax = tile_to_bbox_2154(z, x, y)
-
-        print(f"[GET_TILE] Getting DB connection...")
-        con = get_db()
-
-        start_time = time.time()
-        print(f"[GET_TILE] DB Connected. Running SQL...")
-
-        # Optimization: Use precomputed stats from stats_cache.json
-        # which are loaded into commune_stats_cache at startup.
-        query = f"""
-        WITH tile_env AS (
-            SELECT ST_TileEnvelope({z}, {x}, {y}) AS env
-        ),
-        tile_bbox AS (
-            SELECT ST_Extent(env) AS bbox FROM tile_env
-        ),
-        bounds_2154 AS (
-            SELECT ST_Transform(env, 'EPSG:3857', 'EPSG:2154') AS geom
-            FROM tile_env
-        ),
-        -- Fast bbox pre-filter using geometry_bbox column
-        candidate_parcels AS (
-            SELECT id, commune, departement, contenance, geometry
-            FROM parcels
-            WHERE geometry_bbox.xmin <= {xmax}
-              AND geometry_bbox.xmax >= {xmin}
-              AND geometry_bbox.ymin <= {ymax}
-              AND geometry_bbox.ymax >= {ymin}
-              AND geometry IS NOT NULL
-            LIMIT 50000
-        ),
-        tile_data AS (
-            SELECT
-                p.id,
-                p.commune,
-                p.departement,
-                p.contenance,
-                COALESCE(cs.median_price_m2, 0) AS price_m2,
-                COALESCE(cs.volume, 0) AS n_sales,
-                ST_AsMVTGeom(
-                    ST_Transform(p.geometry, 'EPSG:2154', 'EPSG:3857'),
-                    (SELECT bbox FROM tile_bbox),
-                    4096,
-                    256,
-                    true
-                ) AS geom
-            FROM candidate_parcels p
-            CROSS JOIN bounds_2154 b
-            LEFT JOIN commune_stats_cache cs ON p.commune = cs.insee_com
-            WHERE ST_Intersects(p.geometry, b.geom)
-            LIMIT 20000
-        )
-        SELECT ST_AsMVT(tile_data, 'parcels', 4096, 'geom') AS mvt
-        FROM tile_data
-        WHERE geom IS NOT NULL;
-        """
-
-        result = con.execute(query).fetchone()
-        duration = time.time() - start_time
-        con.close()
-
-        if result is None or result[0] is None:
-            print(f"  Result: 0 bytes (Empty) in {duration:.3f}s")
-            return Response(content=b"", media_type="application/x-protobuf")
-
-        mvt_bytes = bytes(result[0])
-        print(f"  Result: {len(mvt_bytes):,} bytes in {duration:.3f}s")
-        return Response(content=mvt_bytes, media_type="application/x-protobuf")
-
-    except Exception as e:
-        import traceback
-
-        print(f"ERROR generating tile {z}/{x}/{y}:")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def _compute_department_stats() -> dict[str, Any]:
@@ -451,3 +271,7 @@ if frontend_path.exists():
     app.mount(
         "/", StaticFiles(directory=str(frontend_path), html=True), name="frontend"
     )
+
+
+
+

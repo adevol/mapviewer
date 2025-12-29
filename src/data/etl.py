@@ -4,8 +4,7 @@ ETL script for the MapViewer project.
 This script handles:
 1.  Downloading Admin Express (referential geometries).
 2.  Ingesting DVF data (Real Estate Transactions).
-3.  Ingesting Cadastral Parcels (GeoParquet).
-4.  Creating a DuckDB database with spatial extensions.
+3.  Creating a DuckDB database with spatial extensions.
 
 Usage:
     python -m src.data.etl
@@ -23,7 +22,6 @@ import requests
 from .config import (
     ADMIN_EXPRESS_DIR,
     ADMIN_EXPRESS_URL,
-    CADASTRE_FILE,
     DATA_DIR,
     DB_PATH,
     EXTRACTED_DVF_DIR,
@@ -222,32 +220,6 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
     logger.info(f"dvf_clean table created. Total unique transactions: {count:,}")
 
 
-def ingest_cadastre(con: duckdb.DuckDBPyConnection) -> None:
-    """Creates a view for the cadastre parquet file (external query).
-
-    This approach avoids duplicating the 21GB parquet file into the database.
-    DuckDB can query parquet files directly with good performance.
-
-    Args:
-        con: The database connection.
-    """
-    if not CADASTRE_FILE.exists():
-        logger.error(f"Cadastre file not found: {CADASTRE_FILE}")
-        return
-
-    logger.info("Creating external view for Cadastre Parcels...")
-    # Use VIEW for external parquet to save disk space
-    # The parquet file is already optimized for queries
-    con.execute(
-        f"""
-        CREATE OR REPLACE VIEW parcels AS
-        SELECT * FROM read_parquet('{CADASTRE_FILE}');
-    """
-    )
-    count = con.execute("SELECT COUNT(*) FROM parcels").fetchone()[0]
-    logger.info(f"Parcels view created. Total count: {count:,}")
-
-
 def main() -> None:
     """Main ETL execution flow."""
     try:
@@ -265,9 +237,6 @@ def main() -> None:
 
         # 5. Create cleaned DVF table (deduplicates multi-lot transactions)
         create_dvf_clean(con)
-
-        # 6. Ingest Cadastre
-        ingest_cadastre(con)
 
         con.close()
         logger.info("ETL pipeline completed successfully.")
