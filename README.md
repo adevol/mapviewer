@@ -34,7 +34,12 @@ uv run uvicorn src.backend.main:app --reload
 ```
 src/
 ├── data/
-│   └── etl.py         # Data extraction and loading
+│   ├── pipeline/      # Modular data pipeline
+│   │   ├── geometry.py  # TopoJSON & optimization
+│   │   ├── stats.py     # SQL-based statistics
+│   │   └── main.py      # Orchestrator
+│   ├── etl.py         # Data extraction
+│   └── config.py      # Configuration
 ├── backend/
 │   └── main.py        # FastAPI server with MVT endpoints
 └── frontend/

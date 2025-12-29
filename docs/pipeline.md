@@ -11,6 +11,10 @@ This document describes the MapViewer data pipeline, including data sources, tra
 - **Source**: `data/raw_data/valeursfoncieres-*.txt.zip`
 - **Coverage**: 2020 S2 - 2025 S1 (~4.5 years)
 - **Contents**: Transaction details including price, surface, location, property type
+- **Filters**:
+  - `price_m2` between **100 €** and **50,000 €** (defined in `config.py`)
+  - `nature_mutation` = 'Vente'
+  - Standard types: 'Maison', 'Appartement' only
 
 ### Admin Express
 - **Description**: Administrative boundaries (regions, departments, communes)
@@ -19,11 +23,11 @@ This document describes the MapViewer data pipeline, including data sources, tra
 
 ---
 
-## Data Quality Issue: Multi-Lot Transactions
+## Data Quality Issues
 
-### Problem Description
+### Issue 1: Multi-Lot Transactions
 
-DVF records **bulk building sales** (e.g., entire apartment buildings) with the **total transaction price on each lot row**.
+DVF records **bulk building sales** with the **total transaction price on each lot row**.
 
 **Example - Villeron bulk sale:**
 
@@ -31,53 +35,58 @@ DVF records **bulk building sales** (e.g., entire apartment buildings) with the 
 |-----|----------|-----------|--------------|-----------------|
 | 1 | Apartment | 42,048,908 | 23 | 1,828,213 ❌ |
 | 2 | Apartment | 42,048,908 | 24 | 1,752,038 ❌ |
-| 3 | Apartment | 42,048,908 | 28 | 1,501,747 ❌ |
 | ... | ... | ... | ... | ... |
 
-The €42M is the **total building price**, not the individual apartment price. Dividing by each apartment's surface gives absurd €1.8M/m² values.
+The €42M is the **total building price**, not the individual apartment price.
 
-### Solution: Deduplicate by Mutation ID
+### Issue 2: Missing Mutation ID
 
-The `dvf_clean` table groups transactions by `Identifiant de document` (mutation ID) and **sums surfaces**:
+The `"Identifiant de document"` column is **always NULL** in DVF data (all 20M+ rows). This field was intended to group lots within the same transaction, but cannot be used.
+
+### Solution: Synthetic Transaction ID
+
+The `dvf_clean` table uses a **synthetic transaction ID** built from multiple fields:
 
 ```sql
-SELECT
-    "Identifiant de document" AS mutation_id,
-    MAX("Valeur fonciere") AS price,        -- Total transaction price
-    SUM("Surface reelle bati") AS total_surface,  -- Sum all lot surfaces
-    MAX("Valeur fonciere") / SUM("Surface reelle bati") AS price_m2
-FROM dvf
-GROUP BY "Identifiant de document", ...
+"Date mutation" || '|' || 
+"Code departement" || '|' ||
+LPAD(CAST("Code commune" AS VARCHAR), 3, '0') || '|' ||
+"No disposition" || '|' ||
+CAST("Valeur fonciere" AS VARCHAR) AS mutation_id
 ```
 
-**Corrected result:**
-- Price: €42,048,908
-- Total Surface: ~800 m² (sum of all apartments)
-- Correct €/m²: ~52,561 (still high, but realistic for a bulk investment)
+Transactions are grouped by:
+- Date, Department, Commune, Disposition number, Price, Postal code, Commune name, Property type
 
-### Implementation
+This correctly aggregates multi-lot sales while preserving distinct transactions.
 
-The fix is implemented in `src/data/etl.py`:
+---
 
-```python
-def create_dvf_clean(con):
-    """Creates cleaned DVF table with deduplicated multi-lot transactions."""
-    con.execute("""
-        CREATE TABLE dvf_clean AS
-        SELECT
-            "Identifiant de document" AS mutation_id,
-            MAX("Valeur fonciere") AS price,
-            SUM("Surface reelle bati") AS total_surface,
-            COUNT(*) AS n_lots,
-            MAX("Valeur fonciere") / NULLIF(SUM("Surface reelle bati"), 0) AS price_m2
-        FROM dvf
-        WHERE "Nature mutation" = 'Vente'
-        AND "Type local" IN ('Maison', 'Appartement')
-        GROUP BY "Identifiant de document", ...
-    """)
+## Price Filtering
+
+Outlier filtering is applied at different pipeline stages:
+
+### ETL Stage (`dvf_clean` table)
+```sql
+WHERE "Valeur fonciere" > 0
+AND "Surface reelle bati" > 0
+AND "Type local" IN ('Maison', 'Appartement')
 ```
 
-### Tables
+### Precompute Stage (statistics calculation)
+```sql
+WHERE price_m2 > 100     -- Exclude unrealistic low prices
+AND price_m2 < 50000     -- Exclude extreme luxury/errors
+```
+
+| Threshold | Value | Rationale |
+|-----------|-------|-----------|
+| Minimum | 100 €/m² | Below this is likely data error or special sale |
+| Maximum | 50,000 €/m² | Above this is extreme luxury or bulk sale error |
+
+---
+
+## Tables
 
 | Table | Description |
 |-------|-------------|
@@ -109,8 +118,15 @@ uv run python -m src.data.pipeline --step split      # Step 6
 4. **Download Admin Express** → `data/admin_express/`
 
 ### Step 2: Precompute (`--step precompute`)
-5. **Convert shapefiles** → `src/frontend/*.geojson`
-6. **Precompute stats** → `stats_cache.json`
+5. **Geometry Processing** (`src.data.pipeline.geometry`)
+   - Generates simplified GeoJSONs for all levels
+   - **Optimization**: Coordinates rounded to 5 decimals (~1m precision)
+   - **Optimization**: Standard GEOS simplification (fast, memory efficient)
+   - **Features**: Merges Paris/Lyon/Marseille arrondissements for better granularity
+6. **Statistics** (`src.data.pipeline.stats`)
+   - SQL-based aggregation for speed
+   - Computes weighted median price, Q25, Q75
+   - Aggregates up from Commune -> Canton -> Region -> Country
 
 ### Step 3: Split (`--step split`)
 7. **Split communes by department** → `src/frontend/communes/*.geojson`
