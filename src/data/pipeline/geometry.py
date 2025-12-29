@@ -8,12 +8,11 @@ coordinate rounding for file size optimization, and GeoJSON output.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, Any
 
 import geopandas as gpd
 import pandas as pd
-import shapely
-from shapely.geometry import shape, mapping
+from shapely.geometry import mapping
 
 from src.data.config import SIMPLIFY_TOLERANCE
 

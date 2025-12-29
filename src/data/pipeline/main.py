@@ -8,7 +8,6 @@ import json
 import logging
 import geopandas as gpd
 import pandas as pd
-from pathlib import Path
 
 from src.data.config import (
     OUTPUT_DIR,
@@ -16,7 +15,6 @@ from src.data.config import (
     SHAPEFILE_PATHS,
     CODE_FIELDS,
     NAME_FIELDS,
-    MIN_SALES_FOR_STATS,
 )
 from src.data.pipeline import geometry, stats
 

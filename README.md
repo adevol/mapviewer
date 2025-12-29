@@ -29,7 +29,7 @@ uv run uvicorn src.backend.main:app --reload
 
 ## Features
 
-- **Multi-level choropleth**: Zoom from country → regions → departments → cantons → communes
+- **Multi-level choropleth**: Zoom from country - regions - departments - cantons - communes
 - **Price visualization**: Color-coded areas (green = affordable, red = expensive)
 - **Cadastral parcels**: IGN parcel boundaries visible at zoom 14+
 - **Glassmorphism UI**: Modern, premium design aesthetic
@@ -113,6 +113,15 @@ See [docs/pipeline.md](docs/pipeline.md) for detailed documentation on data qual
 | `GET /api/health` | Health check |
 | `GET /api/stats/departments` | Department-level price stats |
 | `GET /api/top10cities` | Top cities by transaction volume |
+
+## Development
+
+Uses `invoke` for tasks and `pre-commit` for code quality. See [docs/development.md](docs/development.md) for details.
+
+```bash
+uv run invoke fix   # Lint + format
+uv run invoke serve # Start dev server
+```
 
 ## Deployment
 

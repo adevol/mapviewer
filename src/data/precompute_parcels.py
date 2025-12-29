@@ -21,7 +21,6 @@ been sold, enriched with transaction price data (price_m2, n_sales).
 
 import json
 import logging
-from pathlib import Path
 
 import duckdb
 from tqdm import tqdm
@@ -140,7 +139,7 @@ def extract_sold_parcels_for_dept(dept_code: str) -> dict:
                 continue
             try:
                 geometry = json.loads(data["geom_geojson"])
-            except:
+            except json.JSONDecodeError:
                 continue
 
             feature = {
@@ -198,7 +197,7 @@ def main() -> None:
         total_size += stats.get("size_kb", 0)
 
     logger.info(
-        f"Extraction complete: {total_count} parcels, {total_size/1024:.1f} MB total"
+        f"Extraction complete: {total_count} parcels, {total_size / 1024:.1f} MB total"
     )
 
 

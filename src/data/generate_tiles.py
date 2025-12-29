@@ -1,4 +1,4 @@
-﻿"""
+"""
 [FUTURE WORK] Vector tile generation using tippecanoe.
 
 This module is NOT currently used in the production pipeline.

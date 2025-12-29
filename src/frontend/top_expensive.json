@@ -3,13 +3,13 @@
     {
       "city": "PARIS 06",
       "code": "75106",
-      "median_price_m2": 14804.0,
+      "median_price_m2": 14810.0,
       "volume": 4066
     },
     {
       "city": "PARIS 07",
       "code": "75107",
-      "median_price_m2": 14517.0,
+      "median_price_m2": 14515.0,
       "volume": 4742
     },
     {
@@ -27,25 +27,25 @@
     {
       "city": "PARIS 01",
       "code": "75101",
-      "median_price_m2": 12769.0,
+      "median_price_m2": 12770.0,
       "volume": 1622
     },
     {
       "city": "PARIS 08",
       "code": "75108",
-      "median_price_m2": 12635.0,
+      "median_price_m2": 12627.0,
       "volume": 3387
     },
     {
       "city": "PARIS 05",
       "code": "75105",
-      "median_price_m2": 12268.0,
+      "median_price_m2": 12269.0,
       "volume": 4401
     },
     {
       "city": "PARIS 03",
       "code": "75103",
-      "median_price_m2": 12254.0,
+      "median_price_m2": 12256.0,
       "volume": 3439
     },
     {
@@ -57,7 +57,7 @@
     {
       "city": "PARIS 02",
       "code": "75102",
-      "median_price_m2": 11693.0,
+      "median_price_m2": 11694.0,
       "volume": 2280
     }
   ]

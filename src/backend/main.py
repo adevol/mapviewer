@@ -12,12 +12,11 @@ Usage:
 """
 
 import time
-import traceback
 from pathlib import Path
 from typing import Any
 
 import duckdb
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
