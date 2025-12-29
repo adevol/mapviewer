@@ -3,7 +3,7 @@ Unified data pipeline for MapViewer.
 
 Orchestrates the complete data processing workflow:
 1. ETL: Download data, ingest DVF, create cleaned tables
-2. Precompute: Convert shapefiles to GeoJSON, compute statistics
+2. Precompute: Convert shapefiles to GeoJSON, compute statistics (Modular Refactor)
 3. Split: Split communes by department for on-demand loading
 
 Usage:
@@ -17,9 +17,10 @@ import argparse
 import logging
 import sys
 
-from . import etl
-from . import precompute
-from . import split_communes
+# Import sibling modules from src.data
+from src.data import etl
+from src.data import split_communes
+from src.data.pipeline import main as precompute_main
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -52,7 +53,7 @@ def run_pipeline(step: str = None) -> None:
         logger.info("\n" + "=" * 60)
         logger.info("STEP 2: Precompute - GeoJSON conversion and statistics")
         logger.info("=" * 60)
-        precompute.main()
+        precompute_main.main()
 
     # Step 3: Split communes
     if step is None or step == "split":

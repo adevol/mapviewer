@@ -16,6 +16,12 @@ RAW_DATA_DIR = DATA_DIR / "raw_data"
 EXTRACTED_DVF_DIR = DATA_DIR / "dvf_extracted"
 DB_PATH = DATA_DIR / "real_estate.duckdb"
 OUTPUT_DIR = Path("src/frontend")
+
+# DuckDB Configuration
+DUCKDB_MEMORY_LIMIT = "4GB"
+DUCKDB_TEMP_DIR = "data/temp"
+DUCKDB_THREADS = 4
+
 STATS_OUTPUT = OUTPUT_DIR / "stats_cache.json"
 CADASTRE_FILE = DATA_DIR / "cadastre.parquet"
 
@@ -103,6 +109,8 @@ SIMPLIFY_TOLERANCE = {
 
 MIN_SALES_FOR_STATS = 5
 VALID_PROPERTY_TYPES = ("Maison", "Appartement")
+MIN_PRICE_M2 = 100
+MAX_PRICE_M2 = 50000
 
 # =============================================================================
 # SQL Expressions for Code Building (for dvf_clean table)

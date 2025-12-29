@@ -2,7 +2,7 @@
 Extract sold parcels from cadastre by joining with DVF transactions.
 
 Creates GeoJSON files per department containing only parcels that have
-been sold, enriched with transaction price data and parcel geometry for tiles.
+been sold, enriched with transaction price data.
 
 Usage:
     python -m src.data.precompute_parcels
@@ -13,17 +13,21 @@ import logging
 from pathlib import Path
 
 import duckdb
+from tqdm import tqdm
 
 from .config import (
     CADASTRE_FILE,
     DB_PATH,
-    PARCELS_GEOJSON_DIR,
+    OUTPUT_DIR,
 )
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+PARCELS_DIR = OUTPUT_DIR / "parcels"
+SIMPLIFY_TOLERANCE = 0.00001  # ~1m at France latitude
 
 
 def get_db() -> duckdb.DuckDBPyConnection:
@@ -50,122 +54,92 @@ def get_departments_with_sales() -> list[str]:
     return [r[0] for r in result]
 
 
-def extract_sold_parcels_for_dept(dept_code: str) -> None:
+def extract_sold_parcels_for_dept(dept_code: str) -> dict:
     """Extracts sold parcels for a single department.
 
-    Args:
-        dept_code: Department code (e.g., '75', '69', '971').
+    Returns stats dict with count and file size.
     """
-    output_file = PARCELS_GEOJSON_DIR / f"{dept_code}.geojson"
+    output_file = PARCELS_DIR / f"{dept_code}.geojson"
 
     if output_file.exists():
-        logger.info(f"  {dept_code}: Already exists, skipping")
-        return
+        size_kb = output_file.stat().st_size / 1024
+        logger.info(f"  {dept_code}: Already exists ({size_kb:.1f} KB)")
+        return {"count": 0, "size_kb": size_kb, "skipped": True}
 
     if not CADASTRE_FILE.exists():
         logger.warning(f"Cadastre file not found: {CADASTRE_FILE}")
-        return
+        return {"count": 0, "size_kb": 0, "error": "no cadastre"}
 
     con = get_db()
 
-    # Build parcel ID expression
-    # Format: dept_code + commune_code (3 digits) + section_prefix + section + plan_number
-    parcel_id_expr = """
-        d.dept_code || 
-        LPAD(CAST(d.commune_code AS VARCHAR), 3, '0') ||
-        COALESCE(d.section_prefix, '000') ||
-        COALESCE(d.section, '') ||
-        LPAD(CAST(d.plan_number AS VARCHAR), 4, '0')
-    """
-
-    # Query to join DVF with cadastre and bring back parcel geometry
-    # Note: This assumes cadastre parquet has 'id' column matching our format
-    # May need adjustment based on actual cadastre schema
+    # Query: Join DVF with cadastre by matching commune codes
+    # DVF has dept_code + commune_code, cadastre has 'commune' as full INSEE code
     query = f"""
-    WITH sales AS (
+    WITH dvf_sales AS (
         SELECT
-            d.mutation_id,
-            d.mutation_date,
-            d.price,
-            d.total_surface,
-            d.price_m2,
-            d.property_type,
-            d.commune_name,
-            d.postal_code,
-            ({parcel_id_expr}) AS parcel_id,
-            ROW_NUMBER() OVER (
-                PARTITION BY ({parcel_id_expr})
-                ORDER BY d.mutation_date DESC, d.price DESC
-            ) AS sale_rank
-        FROM dvf_clean d
-        WHERE d.dept_code = '{dept_code}'
-        AND d.price_m2 > 0
-        AND d.price_m2 < 50000  -- Filter extreme outliers
+            dept_code || LPAD(CAST(commune_code AS VARCHAR), 3, '0') as insee_com,
+            commune_name,
+            -- Aggregate by commune to reduce data
+            COUNT(*) as n_sales,
+            APPROX_QUANTILE(price_m2, 0.5) as median_price_m2
+        FROM dvf_clean
+        WHERE dept_code = '{dept_code}'
+        AND price_m2 > 100
+        AND price_m2 < 50000
+        GROUP BY dept_code, commune_code, commune_name
+    ),
+    cadastre_parcels AS (
+        SELECT
+            id,
+            commune,
+            -- Simplify geometry in Lambert93 coordinates (0.5m tolerance)
+            ST_SimplifyPreserveTopology(geometry, 0.5) as geometry
+        FROM read_parquet('{CADASTRE_FILE}')
+        WHERE departement = '{dept_code}'
+        AND type_objet = 'parcelle'
+        AND geometry IS NOT NULL
     )
     SELECT
-        s.mutation_id,
-        s.mutation_date,
-        s.price,
-        s.total_surface,
-        s.price_m2,
-        s.property_type,
-        s.commune_name,
-        s.postal_code,
-        s.parcel_id,
+        c.id as parcel_id,
+        d.median_price_m2 as price_m2,
+        d.n_sales,
+        d.commune_name,
         ST_AsGeoJSON(
-            ST_Transform(p.geometry, 'EPSG:2154', 'EPSG:4326')
+            ST_Transform(c.geometry, 'EPSG:2154', 'EPSG:4326')
         ) AS geom_geojson
-    FROM sales s
-    JOIN parcels p
-        ON p.id = s.parcel_id
-    WHERE s.sale_rank = 1
-    AND p.geometry IS NOT NULL
-    AND p.geom_srid = 2154
+    FROM cadastre_parcels c
+    INNER JOIN dvf_sales d ON c.commune = d.insee_com
+    LIMIT 20000  -- Cap per department
     """
 
     try:
         result = con.execute(query).fetchall()
-        columns = [
-            "mutation_id",
-            "mutation_date",
-            "price",
-            "total_surface",
-            "price_m2",
-            "property_type",
-            "commune_name",
-            "postal_code",
-            "parcel_id",
-            "geom_geojson",
-        ]
+        columns = ["parcel_id", "price_m2", "n_sales", "commune_name", "geom_geojson"]
 
         if not result:
-            logger.info(f"  {dept_code}: No sales found")
+            logger.info(f"  {dept_code}: No matching parcels found")
             con.close()
-            return
+            return {"count": 0, "size_kb": 0}
 
-        # Convert to GeoJSON features with parcel geometry
+        # Convert to GeoJSON features
         features = []
         for row in result:
             data = dict(zip(columns, row))
             if not data["geom_geojson"]:
                 continue
-            geometry = json.loads(data["geom_geojson"])
+            try:
+                geometry = json.loads(data["geom_geojson"])
+            except:
+                continue
+
             feature = {
                 "type": "Feature",
                 "properties": {
                     "price_m2": (
                         round(data["price_m2"], 0) if data["price_m2"] else None
                     ),
-                    "price": data["price"],
-                    "surface": data["total_surface"],
-                    "date": (
-                        str(data["mutation_date"]) if data["mutation_date"] else None
-                    ),
-                    "type": data["property_type"],
-                    "commune": data["commune_name"],
-                    "postcode": data["postal_code"],
-                    "parcel_id": data["parcel_id"],
-                    "n_sales": 1,
+                    "n_sales": data["n_sales"],
+                    "name": data["commune_name"],
                 },
                 "geometry": geometry,
             }
@@ -176,13 +150,17 @@ def extract_sold_parcels_for_dept(dept_code: str) -> None:
             "features": features,
         }
 
+        # Write with minimal whitespace
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(geojson, f, ensure_ascii=False)
+            json.dump(geojson, f, ensure_ascii=False, separators=(",", ":"))
 
-        logger.info(f"  {dept_code}: {len(features)} sold parcels")
+        size_kb = output_file.stat().st_size / 1024
+        logger.info(f"  {dept_code}: {len(features)} parcels, {size_kb:.1f} KB")
+        return {"count": len(features), "size_kb": size_kb}
 
     except Exception as e:
         logger.error(f"  {dept_code}: Error - {e}")
+        return {"count": 0, "size_kb": 0, "error": str(e)}
 
     finally:
         con.close()
@@ -193,18 +171,24 @@ def main() -> None:
     logger.info("Starting parcel extraction...")
 
     # Create output directory
-    PARCELS_GEOJSON_DIR.mkdir(parents=True, exist_ok=True)
+    PARCELS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Get departments with sales
     departments = get_departments_with_sales()
     logger.info(f"Found {len(departments)} departments with sales")
 
     # Extract parcels for each department
-    for i, dept in enumerate(departments):
-        logger.info(f"Processing department {i+1}/{len(departments)}: {dept}")
-        extract_sold_parcels_for_dept(dept)
+    total_count = 0
+    total_size = 0
 
-    logger.info("Parcel extraction complete!")
+    for dept in tqdm(departments, desc="Extracting parcels"):
+        stats = extract_sold_parcels_for_dept(dept)
+        total_count += stats.get("count", 0)
+        total_size += stats.get("size_kb", 0)
+
+    logger.info(
+        f"Extraction complete: {total_count} parcels, {total_size/1024:.1f} MB total"
+    )
 
 
 if __name__ == "__main__":
