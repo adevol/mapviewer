@@ -7,19 +7,35 @@ This document describes the MapViewer data pipeline, including data sources, tra
 ## Data Sources
 
 ### DVF (Demandes de Valeurs Foncières)
-- **Description**: French real estate transaction records from the government
-- **Source**: `data/raw_data/valeursfoncieres-*.txt.zip`
-- **Coverage**: 2020 S2 - 2025 S1 (~4.5 years)
-- **Contents**: Transaction details including price, surface, location, property type
-- **Filters**:
-  - `price_m2` between **100 €** and **50,000 €** (defined in `config.py`)
-  - `nature_mutation` = 'Vente'
-  - Standard types: 'Maison', 'Appartement' only
 
-### Admin Express
-- **Description**: Administrative boundaries (regions, departments, communes)
-- **Source**: IGN Admin Express 2025
-- **Version**: `ADMIN-EXPRESS_3-2__SHP_LAMB93_FXX_2025-02-03`
+| Field | Value |
+|-------|-------|
+| **Description** | French real estate transaction records |
+| **Source** | [data.gouv.fr/datasets/demandes-de-valeurs-foncieres](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres/) |
+| **Coverage** | 2020 S2 - 2025 S1 (~4.5 years) |
+| **Filters Applied** | `price_m2` between 100€ and 50,000€ |
+| | `nature_mutation` = 'Vente' |
+| | Property types: 'Maison', 'Appartement' only |
+
+### Admin Express (Administrative Boundaries)
+
+| Field | Value |
+|-------|-------|
+| **Description** | Official French administrative boundaries |
+| **Source** | [geoservices.ign.fr](https://geoservices.ign.fr/telechargement-api/ADMIN-EXPRESS-COG?zone=FRA) |
+| **Version** | ADMIN-EXPRESS_3-2__SHP_LAMB93_FXX_2025-02-03 |
+| **Levels** | Regions, Departments, Cantons, Communes, Arrondissements |
+
+### Cadastral Parcels
+
+| Field | Value |
+|-------|-------|
+| **Description** | Property parcel boundaries |
+| **Source (visualization)** | IGN WMTS: `data.geopf.fr/wmts` |
+| **Source (data)** | [cadastre.data.gouv.fr](https://cadastre.data.gouv.fr/datasets/cadastre-etalab) |
+
+> [!NOTE]
+> Parcel visualization uses IGN's WMTS tile service for simplicity. Self-hosted MVT tiles with price coloring are a future enhancement (see `generate_tiles.py`).
 
 ---
 
@@ -86,20 +102,22 @@ AND price_m2 < 50000     -- Exclude extreme luxury/errors
 
 ---
 
-## Tables
+## Database Tables
 
 | Table | Description |
 |-------|-------------|
 | `dvf` | Raw DVF data (one row per lot) |
 | `dvf_clean` | Cleaned data (one row per unique transaction) |
+| `parcels` | View over cadastre.parquet (external query) |
 
-**Always use `dvf_clean` for price statistics.**
+> [!IMPORTANT]
+> **Always use `dvf_clean` for price statistics** - the raw `dvf` table contains duplicate prices.
 
 ---
 
 ## Pipeline Steps
 
-Run the full pipeline with:
+Run the full pipeline:
 ```bash
 uv run python -m src.data.pipeline
 ```
@@ -112,21 +130,69 @@ uv run python -m src.data.pipeline --step split      # Step 6
 ```
 
 ### Step 1: ETL (`--step etl`)
+
 1. **Extract DVF zips** → `data/dvf_extracted/`
 2. **Ingest raw DVF** → `dvf` table
 3. **Create cleaned DVF** → `dvf_clean` table (deduplicates multi-lot)
 4. **Download Admin Express** → `data/admin_express/`
 
 ### Step 2: Precompute (`--step precompute`)
+
 5. **Geometry Processing** (`src.data.pipeline.geometry`)
    - Generates simplified GeoJSONs for all levels
-   - **Optimization**: Coordinates rounded to 5 decimals (~1m precision)
-   - **Optimization**: Standard GEOS simplification (fast, memory efficient)
-   - **Features**: Merges Paris/Lyon/Marseille arrondissements for better granularity
+   - Coordinates rounded to 5 decimals (~1m precision)
+   - Standard GEOS simplification (fast, memory efficient)
+   - Merges Paris/Lyon/Marseille arrondissements for better granularity
+
 6. **Statistics** (`src.data.pipeline.stats`)
    - SQL-based aggregation for speed
    - Computes weighted median price, Q25, Q75
-   - Aggregates up from Commune -> Canton -> Region -> Country
+   - Aggregates up from Commune → Canton → Department → Region → Country
 
 ### Step 3: Split (`--step split`)
+
 7. **Split communes by department** → `src/frontend/communes/*.geojson`
+   - Enables lazy loading on the frontend
+   - Only loads departments visible in viewport
+
+---
+
+## Output Files
+
+| File | Location | Description |
+|------|----------|-------------|
+| `country.geojson` | `src/frontend/` | Country outline with stats |
+| `regions.geojson` | `src/frontend/` | 18 regions with stats |
+| `departements.geojson` | `src/frontend/` | 101 departments with stats |
+| `cantons.geojson` | `src/frontend/` | ~2,000 cantons with stats |
+| `{dept}.geojson` | `src/frontend/communes/` | Per-department commune files |
+| `stats_cache.json` | `src/frontend/` | All-level stats cache |
+| `top_expensive.json` | `src/frontend/` | Top 10 expensive communes |
+
+---
+
+## Configuration
+
+All pipeline configuration is centralized in `src/data/config.py`:
+
+- **Paths**: Data directories, file locations
+- **Simplification tolerances**: Per-level geometry simplification
+- **Field mappings**: Admin Express column names
+- **Price thresholds**: Min/max €/m² for outlier filtering
+- **Department → Region mapping**: 2016 region boundaries
+
+---
+
+## Future Work
+
+The following modules are preserved for future benchmarking:
+
+| Module | Purpose |
+|--------|---------|
+| `generate_tiles.py` | tippecanoe-based PMTiles generation |
+| `precompute_parcels.py` | Parcel extraction with DVF join |
+
+These would enable:
+- Self-hosted vector tiles with custom parcel styling
+- Per-parcel price coloring (vs. commune-level choropleth)
+- Hover tooltips on individual properties
