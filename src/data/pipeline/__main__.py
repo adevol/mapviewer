@@ -37,34 +37,24 @@ def run_pipeline(step: str = None) -> None:
         step: Optional step to run. If None, runs all steps in order.
     """
     if step is None:
-        logger.info("=" * 60)
-        logger.info("Running FULL pipeline")
-        logger.info("=" * 60)
+        logger.info("Running FULL pipeline (3 steps)")
 
     # Step 1: ETL
     if step is None or step == "etl":
-        logger.info("\n" + "=" * 60)
-        logger.info("STEP 1: ETL - Data extraction and loading")
-        logger.info("=" * 60)
+        logger.info("[STEP 1/3] ETL - Data extraction and loading")
         etl.main()
 
     # Step 2: Precompute
     if step is None or step == "precompute":
-        logger.info("\n" + "=" * 60)
-        logger.info("STEP 2: Precompute - GeoJSON conversion and statistics")
-        logger.info("=" * 60)
+        logger.info("[STEP 2/3] PRECOMPUTE - GeoJSON conversion and statistics")
         precompute_main.main()
 
     # Step 3: Split communes
     if step is None or step == "split":
-        logger.info("\n" + "=" * 60)
-        logger.info("STEP 3: Split - Divide communes by department")
-        logger.info("=" * 60)
+        logger.info("[STEP 3/3] SPLIT - Divide communes by department")
         split_communes.main()
 
-    logger.info("\n" + "=" * 60)
     logger.info("Pipeline complete!")
-    logger.info("=" * 60)
 
 
 def main() -> None:
