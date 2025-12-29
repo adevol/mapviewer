@@ -464,7 +464,7 @@ async function loadCommuneDept(deptCode) {
 
 async function loadVisibleCommunes() {
     const zoom = map.getZoom();
-    if (zoom < 11) return; // Only load at commune zoom levels (11+)
+    if (zoom < 10) return; // Preload at zoom 10, before communes become visible at 11
 
     if (!deptBounds) {
         await loadDeptBounds();
