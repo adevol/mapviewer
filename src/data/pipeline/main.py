@@ -26,8 +26,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_simple_layers():
-    """Processes simple layers (Region, Department)."""
+def process_simple_layers() -> None:
+    """Processes region and department layers from shapefiles.
+
+    Loads each shapefile, applies geometry simplification, and saves
+    as GeoJSON. Skips if output file already exists.
+    """
     for level in ["region", "departement"]:
         shp_path = SHAPEFILE_PATHS.get(level)
         if not shp_path or not shp_path.exists():
@@ -45,8 +49,12 @@ def process_simple_layers():
         geometry.save_geojson(gdf, output_path)
 
 
-def process_country_layer():
-    """Creates country outline from regions."""
+def process_country_layer() -> None:
+    """Creates a country outline by dissolving regional boundaries.
+
+    Filters to metropolitan France regions, simplifies geometries,
+    and dissolves into a single polygon. Skips if output exists.
+    """
     output_path = OUTPUT_DIR / "country.geojson"
     if output_path.exists():
         logger.info("country.geojson already exists.")
@@ -91,8 +99,16 @@ def process_country_layer():
     geometry.save_geojson(dissolved, output_path)
 
 
-def process_cantons_layer() -> dict:
-    """Processes cantons, adding pseudo-cantons for PLM. Returns commune->canton map."""
+def process_cantons_layer() -> dict[str, str]:
+    """Processes cantons layer and creates commune-to-canton mapping.
+
+    Adds pseudo-cantons for Paris/Lyon/Marseille to ensure proper
+    statistics aggregation. The mapping is always computed even if
+    the GeoJSON already exists.
+
+    Returns:
+        Dictionary mapping commune INSEE codes to canton codes.
+    """
     output_path = OUTPUT_DIR / "cantons.geojson"
     commune_to_canton = {}
 
@@ -170,8 +186,13 @@ def process_cantons_layer() -> dict:
     return commune_to_canton
 
 
-def process_communes_layer():
-    """Processes communes, merging arrondissements into them."""
+def process_communes_layer() -> None:
+    """Processes communes layer, merging arrondissements.
+
+    Removes parent PLM communes (Paris, Lyon, Marseille) and replaces
+    them with their arrondissements for finer-grained visualization.
+    Skips if output file already exists.
+    """
     output_path = OUTPUT_DIR / "communes.geojson"
     if output_path.exists():
         logger.info("communes.geojson already exists.")
@@ -206,9 +227,15 @@ def process_communes_layer():
     geometry.save_geojson(communes_gdf, output_path)
 
 
-def main():
-    logger.info("Starting pipeline (Modular Refactor)...")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def main() -> None:
+    """Main pipeline orchestrator for geometry and statistics processing.
+
+    Executes the following phases:
+    1. Geometry: Load shapefiles, simplify, save as GeoJSON
+    2. Statistics: Compute price stats at all geographic levels
+    3. Output: Save stats cache and top 10 expensive communes
+    """
+    logger.info("Starting pipeline...")
 
     # --- Geometry Phase ---
     process_country_layer()

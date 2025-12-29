@@ -21,17 +21,33 @@ logger = logging.getLogger(__name__)
 
 
 def simplify_with_topology(gdf: gpd.GeoDataFrame, level: str) -> gpd.GeoDataFrame:
-    """Simplifies geometries using standard GEOS simplification (faster, less memory).
+    """Simplifies geometries using standard GEOS simplification.
 
-    NOTE: TopoJSON implementation removed due to OOM issues on large datasets.
-    Now just an alias for simplify_fast.
+    Note:
+        TopoJSON implementation was removed due to OOM issues.
+        This is now an alias for simplify_fast().
+
+    Args:
+        gdf: GeoDataFrame with geometries to simplify.
+        level: Geographic level (determines simplification tolerance).
+
+    Returns:
+        GeoDataFrame with simplified geometries.
     """
     logger.debug(f"Simplifying {level} (using fast approach)...")
     return simplify_fast(gdf, level)
 
 
 def simplify_fast(gdf: gpd.GeoDataFrame, level: str) -> gpd.GeoDataFrame:
-    """Simplifies geometries using standard GEOS simplification (faster, less memory)."""
+    """Simplifies geometries using GEOS topology-preserving simplification.
+
+    Args:
+        gdf: GeoDataFrame with geometries to simplify.
+        level: Geographic level key for SIMPLIFY_TOLERANCE lookup.
+
+    Returns:
+        GeoDataFrame with simplified geometries.
+    """
     tolerance = SIMPLIFY_TOLERANCE.get(level, 0.001)
     logger.debug(f"Fast simplifying {level}: tolerance={tolerance}m")
 
@@ -43,7 +59,15 @@ def simplify_fast(gdf: gpd.GeoDataFrame, level: str) -> gpd.GeoDataFrame:
 
 
 def round_coordinates(geom: Dict[str, Any], precision: int = 5) -> Dict[str, Any]:
-    """Recursively rounds coordinates in a GeoJSON geometry dictionary."""
+    """Recursively rounds coordinates in a GeoJSON geometry dictionary.
+
+    Args:
+        geom: GeoJSON geometry dict with 'coordinates' key.
+        precision: Decimal places to round to (default 5 = ~1m accuracy).
+
+    Returns:
+        New geometry dict with rounded coordinates.
+    """
     if not geom:
         return geom
 
@@ -62,7 +86,16 @@ def round_coordinates(geom: Dict[str, Any], precision: int = 5) -> Dict[str, Any
 
 
 def save_geojson(gdf: gpd.GeoDataFrame, output_path: Path, precision: int = 5) -> None:
-    """Saves GeoDataFrame to GeoJSON with rounded coordinates and minimal whitespace."""
+    """Saves GeoDataFrame to GeoJSON with optimizations for file size.
+
+    Applies coordinate rounding and minimal whitespace formatting.
+    Converts CRS to WGS84 (EPSG:4326) if needed.
+
+    Args:
+        gdf: GeoDataFrame to save.
+        output_path: Path for the output GeoJSON file.
+        precision: Decimal places for coordinate rounding.
+    """
     logger.info(f"Saving {output_path.name}...")
 
     # Convert to WGS84 if not already
@@ -92,13 +125,26 @@ def save_geojson(gdf: gpd.GeoDataFrame, output_path: Path, precision: int = 5) -
         json.dump(geojson, f, ensure_ascii=False, separators=(",", ":"))
 
     size_mb = output_path.stat().st_size / (1024 * 1024)
-    logger.info(f"  → Saved {len(features)} features, {size_mb:.1f} MB")
+    logger.info(f"  -> Saved {len(features)} features, {size_mb:.1f} MB")
 
 
 def load_and_simplify(
     shp_path: Path, code_field: str, name_field: str, level: str
 ) -> gpd.GeoDataFrame:
-    """Loads a shapefile, renames columns, and simplifies."""
+    """Loads a shapefile, renames columns, and simplifies geometries.
+
+    Standardizes column names to 'code', 'name', 'geometry' for
+    consistent downstream processing.
+
+    Args:
+        shp_path: Path to the input shapefile.
+        code_field: Source column name for the code/id.
+        name_field: Source column name for the name.
+        level: Geographic level for simplification tolerance.
+
+    Returns:
+        GeoDataFrame with standardized columns and simplified geometries.
+    """
     logger.info(f"Processing {shp_path.name} ({level})...")
 
     gdf = gpd.read_file(shp_path)

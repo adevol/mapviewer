@@ -28,7 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_db() -> duckdb.DuckDBPyConnection:
-    """Gets a DuckDB connection with spatial extension."""
+    """Gets a DuckDB connection with spatial extension.
+
+    Configures memory limits and thread count from config.
+
+    Returns:
+        Configured DuckDB connection in read-only mode.
+    """
     con = duckdb.connect(str(DB_PATH), read_only=True)
     con.execute("LOAD spatial;")
     con.execute(f"SET memory_limit = '{DUCKDB_MEMORY_LIMIT}';")
@@ -38,7 +44,13 @@ def get_db() -> duckdb.DuckDBPyConnection:
 
 
 def get_base_filter() -> str:
-    """Returns the SQL WHERE clause for valid price and sales."""
+    """Returns the SQL WHERE clause for valid price filtering.
+
+    Applies price range limits and filters to 'Vente' transactions only.
+
+    Returns:
+        SQL WHERE clause fragment.
+    """
     return f"""
         price_m2 BETWEEN {MIN_PRICE_M2} AND {MAX_PRICE_M2}
         AND nature = 'Vente'
@@ -50,7 +62,16 @@ def compute_standard_stats(
     alias: str = "code",
     additional_where: str = "1=1",
 ) -> Dict[str, Any]:
-    """Computes standard stats (median, quantiles) for a given grouping."""
+    """Computes price statistics (median, quartiles) for a given grouping.
+
+    Args:
+        group_by_expr: SQL expression to group by (e.g., 'dept_code').
+        alias: Column alias for the grouping in results.
+        additional_where: Extra SQL WHERE conditions.
+
+    Returns:
+        Tuple of (stats_dict, name_map) with price statistics per group.
+    """
     con = get_db()
 
     query = f"""
@@ -152,7 +173,13 @@ def compute_commune_stats() -> tuple[Dict[str, Any], Dict[str, str]]:
 
 
 def compute_region_stats() -> Dict[str, Any]:
-    """Computes region stats using dept->region mapping."""
+    """Computes region-level price statistics.
+
+    Maps department codes to region codes using DEPT_TO_REGION config.
+
+    Returns:
+        Dictionary of stats keyed by region code.
+    """
     logger.info("Computing region stats...")
 
     case_stmt = (
@@ -170,14 +197,22 @@ def compute_region_stats() -> Dict[str, Any]:
 
 
 def compute_department_stats() -> Dict[str, Any]:
-    """Computes department stats."""
+    """Computes department-level price statistics.
+
+    Returns:
+        Dictionary of stats keyed by department code.
+    """
     logger.info("Computing department stats...")
     res_stats, _ = compute_standard_stats("dept_code", "dept_code")
     return res_stats
 
 
 def compute_country_stats() -> Dict[str, Any]:
-    """Computes single country-wide stat."""
+    """Computes country-wide aggregate price statistics.
+
+    Returns:
+        Dictionary with single 'FR' key containing national stats.
+    """
     logger.info("Computing country stats...")
     con = get_db()
     query = f"""
@@ -205,7 +240,17 @@ def compute_country_stats() -> Dict[str, Any]:
 def compute_canton_stats(
     commune_stats: Dict[str, Any], commune_to_canton: Dict[str, str]
 ) -> Dict[str, Any]:
-    """Computes canton stats by aggregating pre-calculated commune stats."""
+    """Computes canton stats by aggregating pre-calculated commune stats.
+
+    Uses weighted averaging based on sales volume per commune.
+
+    Args:
+        commune_stats: Pre-computed commune statistics.
+        commune_to_canton: Mapping from commune INSEE codes to canton codes.
+
+    Returns:
+        Dictionary of stats keyed by canton code.
+    """
     # Note: commune_to_canton must be provided by the geometry module which reads the shp
     logger.info("Computing canton stats (from commune aggregation)...")
 
@@ -252,7 +297,17 @@ def compute_canton_stats(
 def compute_top_expensive_communes(
     commune_stats: Dict[str, Any], name_map: Dict[str, str]
 ) -> list[Dict[str, Any]]:
-    """Computes the top 10 most expensive communes with enough sales volume."""
+    """Finds the top 10 most expensive communes by median price.
+
+    Only includes communes with at least 100 sales for reliability.
+
+    Args:
+        commune_stats: Pre-computed commune statistics.
+        name_map: Mapping from commune codes to names.
+
+    Returns:
+        List of top 10 commune dicts sorted by price descending.
+    """
     logger.info("Filtering top 10 expensive communes from precomputed stats...")
 
     top_10 = []
