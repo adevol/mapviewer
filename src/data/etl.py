@@ -202,7 +202,6 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
         WHERE "Nature mutation" = 'Vente'
         AND "Valeur fonciere" > 0
         AND "Surface reelle bati" > 0
-        AND "Type local" IN ('Maison', 'Appartement')
         GROUP BY
             -- Group by a synthetic transaction ID components
             "Date mutation",
@@ -213,6 +212,14 @@ def create_dvf_clean(con: duckdb.DuckDBPyConnection) -> None:
             "Code postal",
             "Commune",
             "Nature mutation"
+        HAVING
+            -- Keep only transactions where all lots are residential types
+            SUM(
+                CASE
+                    WHEN "Type local" IN ('Maison', 'Appartement') THEN 1
+                    ELSE 0
+                END
+            ) = COUNT(*)
     """
     )
 
