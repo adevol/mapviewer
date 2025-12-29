@@ -10,6 +10,7 @@ Usage:
     uv run uvicorn src.backend.main:app --reload
 """
 
+import math
 import time
 from pathlib import Path
 from typing import Any
@@ -70,9 +71,40 @@ async def debug_tile() -> Response:
     return Response(content=b"", media_type="application/x-protobuf")
 
 
+def tile_to_bbox_2154(z: int, x: int, y: int) -> tuple[float, float, float, float]:
+    """Convert tile coordinates to bounding box in EPSG:2154 (Lambert-93).
+
+    Uses pyproj for accurate coordinate transformation.
+
+    Returns:
+        (xmin, ymin, xmax, ymax) in EPSG:2154 coordinates.
+    """
+    from pyproj import Transformer
+
+    # First get WGS84 bounds from tile coordinates
+    n = 2.0**z
+    lon_min = x / n * 360.0 - 180.0
+    lon_max = (x + 1) / n * 360.0 - 180.0
+    lat_max = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    lat_min = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
+
+    # Transform to Lambert-93 (EPSG:2154) using pyproj
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:2154", always_xy=True)
+    x1, y1 = transformer.transform(lon_min, lat_min)
+    x2, y2 = transformer.transform(lon_max, lat_max)
+
+    # Add 20% buffer for safety
+    dx = abs(x2 - x1) * 0.2
+    dy = abs(y2 - y1) * 0.2
+
+    return (min(x1, x2) - dx, min(y1, y2) - dy, max(x1, x2) + dx, max(y1, y2) + dy)
+
+
 @app.get("/api/tiles/{z}/{x}/{y}.pbf")
 async def get_tile(z: int, x: int, y: int) -> Response:
     """Generates a Mapbox Vector Tile (MVT) for the given tile coordinates.
+
+    Uses bbox pre-filtering on geometry_bbox column for efficient queries.
 
     Args:
         z: Zoom level.
@@ -83,27 +115,47 @@ async def get_tile(z: int, x: int, y: int) -> Response:
         The MVT tile as binary protobuf.
     """
     try:
-        con = get_db()
-
-        # Return empty tile for low zoom levels (too many parcels to query)
+        # Return empty tile for low zoom levels (too many parcels)
         if z < 14:
             return Response(content=b"", media_type="application/x-protobuf")
 
-        # Generate MVT tile using DuckDB spatial extension.
-        # Key insight: ST_AsMVTGeom requires BOX_2D, but ST_TileEnvelope returns GEOMETRY.
-        # Solution: Use ST_Extent() which returns BOX_2D.
+        # Pre-compute approximate bbox in EPSG:2154 for fast filtering
+        xmin, ymin, xmax, ymax = tile_to_bbox_2154(z, x, y)
+
+        con = get_db()
+
+        # Use geometry_bbox for fast pre-filtering before expensive ST_Intersects
+        # This dramatically reduces rows scanned from 160M to just those in bbox
         query = f"""
         WITH tile_env AS (
             SELECT ST_TileEnvelope({z}, {x}, {y}) AS env
         ),
-        -- Convert to BOX_2D using ST_Extent (aggregate but works on single row)
         tile_bbox AS (
             SELECT ST_Extent(env) AS bbox FROM tile_env
         ),
-        -- Transform tile bounds to Lambert 93 for querying French parcels
         bounds_2154 AS (
             SELECT ST_Transform(env, 'EPSG:3857', 'EPSG:2154') AS geom
             FROM tile_env
+        ),
+        -- Get commune stats for coloring (V1: uniform price per commune)
+        commune_stats AS (
+            SELECT
+                dept_code || LPAD(CAST(commune_code AS VARCHAR), 3, '0') AS insee_com,
+                APPROX_QUANTILE(price_m2, 0.5) AS median_price_m2,
+                COUNT(*) AS volume
+            FROM dvf_clean
+            GROUP BY 1
+        ),
+        -- Fast bbox pre-filter using geometry_bbox column
+        candidate_parcels AS (
+            SELECT id, commune, departement, contenance, geometry
+            FROM parcels
+            WHERE geometry_bbox.xmin <= {xmax}
+              AND geometry_bbox.xmax >= {xmin}
+              AND geometry_bbox.ymin <= {ymax}
+              AND geometry_bbox.ymax >= {ymin}
+              AND geometry IS NOT NULL
+            LIMIT 20000
         ),
         tile_data AS (
             SELECT
@@ -111,6 +163,9 @@ async def get_tile(z: int, x: int, y: int) -> Response:
                 p.commune,
                 p.departement,
                 p.contenance,
+                -- Use commune median price
+                COALESCE(cs.median_price_m2, 0) AS price_m2,
+                COALESCE(cs.volume, 0) AS n_sales,
                 ST_AsMVTGeom(
                     ST_Transform(p.geometry, 'EPSG:2154', 'EPSG:3857'),
                     (SELECT bbox FROM tile_bbox),
@@ -118,11 +173,11 @@ async def get_tile(z: int, x: int, y: int) -> Response:
                     256,
                     true
                 ) AS geom
-            FROM parcels p, bounds_2154 b
-            WHERE p.geom_srid = 2154
-            AND ST_Intersects(p.geometry, b.geom)
-            AND p.geometry IS NOT NULL
-            LIMIT 50000
+            FROM candidate_parcels p
+            CROSS JOIN bounds_2154 b
+            LEFT JOIN commune_stats cs ON p.commune = cs.insee_com
+            WHERE ST_Intersects(p.geometry, b.geom)
+            LIMIT 10000
         )
         SELECT ST_AsMVT(tile_data, 'parcels', 4096, 'geom') AS mvt
         FROM tile_data
