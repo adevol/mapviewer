@@ -266,13 +266,11 @@ async function addGeoLayer(layerConfig) {
         }
         const geoData = await response.json();
 
-        // Determine stats level (remove trailing 's' essentially)
+        // Enrich features with price data from stats cache
         const statsLevel = id === 'departements' ? 'departement' :
             id === 'regions' ? 'region' :
-                id === 'cantons' ? 'canton' :
-                    id === 'communes' ? 'commune' : 'country';
+                id === 'cantons' ? 'canton' : 'country';
 
-        // Enrich features with price data from stats cache
         geoData.features.forEach(feature => {
             const code = feature.properties.code;
             const stats = getStatsForCode(statsLevel, code);
@@ -283,7 +281,6 @@ async function addGeoLayer(layerConfig) {
                 feature.properties.q75 = stats.q75;
             }
         });
-
         // Add source
         map.addSource(id, {
             type: 'geojson',
@@ -330,13 +327,11 @@ async function addGeoLayer(layerConfig) {
 map.on('load', async () => {
     console.log('Map loaded with French government vector tiles');
 
-    // Load stats cache first
+    // Load stats cache first (needed for communes dynamic loading)
     await loadStatsCache();
 
-    // Add all geographic layers with stats
-    for (const layerConfig of GEO_LAYERS) {
-        await addGeoLayer(layerConfig);
-    }
+    // Load all geographic layers in parallel for faster startup
+    await Promise.all(GEO_LAYERS.map(layerConfig => addGeoLayer(layerConfig)));
 
     // Initialize communes source (empty, will be populated dynamically)
     map.addSource('communes', {
@@ -479,44 +474,11 @@ async function loadVisibleCommunes() {
     }
 }
 
-// Convert price to color using same scale as PRICE_COLOR_EXPR
-function priceToColor(price) {
-    const stops = [
-        [1000, '#27ae60'],
-        [4000, '#f1c40f'],
-        [7000, '#e67e22'],
-        [12000, '#ff0000'],
-    ];
-
-    if (price <= stops[0][0]) return stops[0][1];
-    if (price >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
-
-    for (let i = 0; i < stops.length - 1; i++) {
-        if (price >= stops[i][0] && price < stops[i + 1][0]) {
-            const t = (price - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
-            return interpolateColor(stops[i][1], stops[i + 1][1], t);
-        }
-    }
-    return '#888888';
-}
-
-// Simple hex color interpolation
-function interpolateColor(c1, c2, t) {
-    const r1 = parseInt(c1.slice(1, 3), 16);
-    const g1 = parseInt(c1.slice(3, 5), 16);
-    const b1 = parseInt(c1.slice(5, 7), 16);
-    const r2 = parseInt(c2.slice(1, 3), 16);
-    const g2 = parseInt(c2.slice(3, 5), 16);
-    const b2 = parseInt(c2.slice(5, 7), 16);
-    const r = Math.round(r1 + (r2 - r1) * t);
-    const g = Math.round(g1 + (g2 - g1) * t);
-    const b = Math.round(b1 + (b2 - b1) * t);
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-}
-
-// Load communes when zooming or panning at high zoom
+// Load communes when zooming or panning at high zoom (debounced)
+let communeLoadTimeout;
 map.on('moveend', () => {
-    loadVisibleCommunes();
+    clearTimeout(communeLoadTimeout);
+    communeLoadTimeout = setTimeout(loadVisibleCommunes, 150);
 });
 
 
@@ -589,17 +551,6 @@ const zoomLevelEl = document.getElementById('zoom-level');
 map.on('zoom', () => {
     const zoom = map.getZoom().toFixed(1);
     if (zoomLevelEl) zoomLevelEl.innerText = zoom;
-
-    const parcelStatusEl = document.getElementById('parcel-status');
-    if (parcelStatusEl) {
-        if (zoom >= 14) {
-            parcelStatusEl.innerText = 'Actif';
-            parcelStatusEl.style.color = '#27ae60';
-        } else {
-            parcelStatusEl.innerText = 'Hors zoom (< 14)';
-            parcelStatusEl.style.color = '#e67e22';
-        }
-    }
 });
 
 // Note: Cadastre tiles are now loaded directly from IGN's WMS service
